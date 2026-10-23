@@ -106,7 +106,11 @@ def selftest() -> int:
         (app_dir() / "selftest.log").write_text(txt, encoding="utf-8")
     except OSError:
         pass
-    print(txt)
+    try:
+        print(txt)
+    except Exception:                                        # noqa: BLE001
+        pass
+    out.append("konec, ukončuji proces")
     return 0 if ok else 1
 
 
