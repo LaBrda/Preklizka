@@ -83,6 +83,8 @@ def prepare(names: list[str]) -> dict:
 
 def needed(op: str, p: dict, gpu: bool) -> list[str]:
     if op == "bg":
+        if p.get("kind") == "white":
+            return []
         return ["isnet-general-use.onnx" if p.get("kind") == "photo" else "isnet-anime.onnx"]
     if op == "select":
         return ["sam-encoder.onnx", "sam-decoder.onnx"]
@@ -190,13 +192,9 @@ def bg_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
     inp = _session(name).get_inputs()[0].name
     x = cv2.resize(rgb, (1024, 1024), interpolation=cv2.INTER_AREA if max(h, w) > 1024 else cv2.INTER_CUBIC).astype(np.float32)
     x = x / max(float(x.max()), 1e-6) - np.array([0.485, 0.456, 0.406], np.float32)
-    outs = []
-    for flip in (False, True):                          # i zrcadlově otočený obrázek, průměr = stabilnější maska
-        xi = x[:, ::-1] if flip else x
-        o = _run(name, {inp: np.ascontiguousarray(xi.transpose(2, 0, 1)[None], np.float32)})[0][0, 0]
-        o = (o - o.min()) / max(float(o.max() - o.min()), 1e-6)
-        outs.append(o[:, ::-1] if flip else o)
-    m = cv2.resize((outs[0] + outs[1]) / 2, (w, h), interpolation=cv2.INTER_LINEAR).astype(np.float32)
+    o = _run(name, {inp: x.transpose(2, 0, 1)[None].astype(np.float32)})[0][0, 0]
+    o = (o - o.min()) / max(float(o.max() - o.min()), 1e-6)
+    m = cv2.resize(o, (w, h), interpolation=cv2.INTER_LINEAR).astype(np.float32)
     # hrany dopočítat podle skutečného obrázku v plném rozlišení
     g = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255.0
     r = max(2, round(max(h, w) / 350))
@@ -275,8 +273,21 @@ def _flood_mask(rgb: np.ndarray, tol: int = 40) -> np.ndarray:
     return (~bg).astype(np.float32)
 
 
+def remove_white(rgba: np.ndarray) -> np.ndarray:
+    """Odstranit všechnu bílou (i uvnitř kresby). Hrany čar zůstanou hladké, bílý lem se odečte."""
+    rgb = rgba[..., :3].astype(np.float32)
+    d = (255.0 - rgb).max(-1)                           # jak daleko je pixel od bílé
+    a = np.clip((d - 12.0) / 70.0, 0, 1)
+    safe = np.maximum(a, 1e-3)[..., None]
+    col = np.clip((rgb - 255.0 * (1 - a[..., None])) / safe, 0, 255)   # odečíst příměs bílé na hranách
+    a = a * (rgba[..., 3].astype(np.float32) / 255.0)
+    return np.dstack([col.astype(np.uint8), (a * 255 + 0.5).astype(np.uint8)])
+
+
 def remove_bg(rgba: np.ndarray, kind: str, soft: bool = False) -> np.ndarray:
     import cv2
+    if kind == "white":
+        return remove_white(rgba)
     rgb = _flatten(rgba)
     sat = rgb.max(-1).astype(np.int16) - rgb.min(-1)
     lineart = kind != "photo" and (sat < 30).mean() > 0.97
