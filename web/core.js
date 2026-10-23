@@ -318,7 +318,29 @@
     // kliknutá místa pozadí: zaplavit podobnou barvu od kliku
     for (const s0 of bg.bgSeeds || []) { const c = col(s0), m = new Uint8Array(N); flood([s0], (i) => !transparentPx(i) && near(i, c), m); for (let i = 0; i < N; i++) if (m[i]) back[i] = 1; }
     // kliknutá místa postavy: vrátit podobnou barvu, která skončila v pozadí
-    for (const s0 of bg.fgSeeds || []) { if (transparentPx(s0)) continue; const c = col(s0), m = new Uint8Array(N); flood([s0], (i) => back[i] && !transparentPx(i) && near(i, c), m); for (let i = 0; i < N; i++) if (m[i]) back[i] = 0; }
+    for (const s0 of bg.fgSeeds || []) {
+      if (transparentPx(s0)) {
+        // klik do průhledného místa kresby (vlasy Ricka, kam proteklo pozadí mezerami v tazích): uzavřít mezery
+        // čím dál širší bariérou, dokud oblast od kliku nepřestane sahat k okraji obrázku
+        const opaque = new Uint8Array(N);
+        for (let i = 0; i < N; i++) opaque[i] = transparentPx(i) ? 0 : 1;
+        for (const k of [1, 2, 3, 5, 8]) {
+          const g = Math.max(2, Math.round(Math.max(W, H) / 150)) * k, bar = dilate(opaque, W, H, g);
+          if (bar[s0]) continue;
+          const m = new Uint8Array(N);
+          flood([s0], (i) => !bar[i], m);
+          let edge = false;
+          for (let x = 0; x < W && !edge; x++) edge = m[x] || m[(H - 1) * W + x];
+          for (let y = 0; y < H && !edge; y++) edge = m[y * W] || m[y * W + W - 1];
+          if (edge) continue;
+          const grow = dilate(m, W, H, g + 1);
+          for (let i = 0; i < N; i++) if (grow[i] && transparentPx(i)) back[i] = 0;
+          break;
+        }
+        continue;
+      }
+      const c = col(s0), m = new Uint8Array(N); flood([s0], (i) => back[i] && !transparentPx(i) && near(i, c), m); for (let i = 0; i < N; i++) if (m[i]) back[i] = 0;
+    }
     for (let i = 0; i < N; i++) fg[i] = back[i] ? 0 : 1;
     return fg;
   }
