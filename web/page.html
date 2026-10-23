@@ -310,6 +310,10 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   const verNum = (v) => String(v || "").replace(/^v/, "").split(".").map((x) => parseInt(x) || 0);
   const newer = (a, b) => { const x = verNum(a), y = verNum(b); for (let i = 0; i < Math.max(x.length, y.length); i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
   async function latestVersion() {
+    if (server && server.mode === "exe") {   // exe se aktualizuje z vydaných verzí (Releases)
+      try { const r = await fetch("https://api.github.com/repos/LaBrda/Preklizka/releases/latest", { cache: "no-store" }); return r.ok ? ((await r.json()).tag_name || "").replace(/^v/, "") || null : null; }
+      catch (e) { return null; }
+    }
     try { const r = await fetch("https://raw.githubusercontent.com/LaBrda/Preklizka/main/VERSION?t=" + Date.now(), { cache: "no-store" }); return r.ok ? (await r.text()).trim() : null; }
     catch (e) { return null; }
   }
@@ -343,6 +347,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       const r = await fetch("api/update", { method: "POST", headers: { "X-Update-Password": pw } });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { $("msg").textContent = "Aktualizace se nepovedla: " + (j.detail || r.status); $("updBtn").disabled = false; return; }
+      if (j.status === "current") { $("msg").textContent = "Máš nejnovější verzi v" + before + "."; $("updBtn").disabled = false; return; }
     } catch (e) { /* appka se může restartovat ještě před odpovědí */ }
     // čekat, až naběhne nová verze; pak stránku obnovit
     const t0 = Date.now();

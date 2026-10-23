@@ -1,0 +1,52 @@
+name: Windows exe
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verze
+        id: v
+        shell: bash
+        run: |
+          echo "version=$(cat VERSION | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+      - name: Je to nová verze?
+        id: chk
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "v${{ steps.v.outputs.version }}" -R "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "new=false" >> "$GITHUB_OUTPUT"; echo "Verze už je vydaná, exe se nestaví."
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Sestavit exe
+        if: steps.chk.outputs.new == 'true' || github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          pip install -r requirements.txt pyinstaller==6.11.1
+          python tools/build_web.py
+          pyinstaller --noconfirm preklizka.spec
+          ./dist/Preklizka.exe --selftest
+      - name: Vydat verzi
+        if: steps.chk.outputs.new == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.v.outputs.version }}
+          name: Překližkové vrstvy v${{ steps.v.outputs.version }}
+          files: dist/Preklizka.exe
+          body: |
+            Stáhni **Preklizka.exe** a spusť (bez instalace). Appka se otevře v prohlížeči.
+            Další verze nainstaluješ tlačítkem **Aktualizovat** přímo v appce.

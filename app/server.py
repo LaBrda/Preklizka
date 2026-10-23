@@ -1,8 +1,9 @@
-"""Webový server appky Překližkové vrstvy (běží v Dockeru)."""
+"""Webový server appky Překližkové vrstvy (Docker na serveru nebo Preklizka.exe ve Windows)."""
 from __future__ import annotations
 
 import base64
 import os
+import sys
 import threading
 from pathlib import Path
 
@@ -17,14 +18,16 @@ from pydantic import BaseModel
 
 import vrstvy
 
-_vf = Path(__file__).resolve().parent.parent / "VERSION"
+BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))   # v exe rozbalená data
+_vf = BASE / "VERSION"
 VERSION = os.environ.get("APP_VERSION") or (_vf.read_text().strip() if _vf.exists() else "dev")
 if VERSION == "dev" and _vf.exists():
     VERSION = _vf.read_text().strip()
 WATCHTOWER_URL = os.environ.get("WATCHTOWER_URL", "")          # např. http://watchtower:8080
 WATCHTOWER_TOKEN = os.environ.get("WATCHTOWER_TOKEN", "")
 UPDATE_PASSWORD = os.environ.get("UPDATE_PASSWORD", "")
-WEB = Path(__file__).resolve().parent.parent / "web"
+WEB = BASE / "web"
+DESKTOP = os.environ.get("PREKLIZKA_DESKTOP") == "1"            # běží jako Preklizka.exe (samoaktualizace z GitHubu)
 
 app = FastAPI(title="Překližkové vrstvy", docs_url=None, redoc_url=None)
 _lock = threading.Semaphore(int(os.environ.get("MAX_PARALLEL", "1")))   # nezahltit server
@@ -70,8 +73,8 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": VERSION, "update": bool(WATCHTOWER_URL and WATCHTOWER_TOKEN),
-            "updateNeedsPassword": bool(UPDATE_PASSWORD)}
+    return {"ok": True, "version": VERSION, "update": DESKTOP or bool(WATCHTOWER_URL and WATCHTOWER_TOKEN),
+            "updateNeedsPassword": bool(UPDATE_PASSWORD) and not DESKTOP, "mode": "exe" if DESKTOP else "server"}
 
 
 @app.post("/api/build")
@@ -109,6 +112,13 @@ def build(inp: BuildIn):
 
 @app.post("/api/update")
 def update(x_update_password: str = Header(default="")):
+    if DESKTOP:
+        import updater
+        try:
+            info = updater.start_update(VERSION)
+        except Exception as e:
+            raise HTTPException(502, f"Aktualizace se nepovedla: {e}")
+        return info
     if not (WATCHTOWER_URL and WATCHTOWER_TOKEN):
         raise HTTPException(501, "Aktualizace z appky není nastavená (chybí Watchtower).")
     if UPDATE_PASSWORD and x_update_password != UPDATE_PASSWORD:

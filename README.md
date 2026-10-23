@@ -4,6 +4,14 @@ Z obrázku postavičky udělá řezné SVG pro laser se 3 až 5 vrstvami (čern�
 horní vrstva z čistého dřeva s rámečkem). Ovládání běží v prohlížeči, přesný výpočet vrstev dělá
 server ve vyšším rozlišení (hladké řezy). Bez serveru se počítá přímo v prohlížeči.
 
+## Windows: Preklizka.exe (bez instalace)
+
+1. Na stránce **Releases** repozitáře stáhni `Preklizka.exe` z nejnovější verze.
+2. Spusť ho. Otevře se okno s informací a appka v prohlížeči (`http://127.0.0.1:8765`).
+   Windows může poprvé ukázat „Systém Windows ochránil počítač“ → *Další informace* → *Přesto spustit*.
+3. Aktualizace: v appce tlačítko **Aktualizovat**. Exe stáhne novou verzi, vymění se a restartuje.
+4. Ukončení: zavři černé okno.
+
 ## Instalace na Proxmox (Debian LXC s Dockerem)
 
 1. **Kontejner.** V Proxmoxu vytvoř Debian 12 LXC: 2 jádra, 1,5 GB RAM, 6 GB disk.
