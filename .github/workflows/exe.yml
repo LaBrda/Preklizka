@@ -29,9 +29,10 @@ jobs:
           pip install -r requirements.txt pyinstaller==6.11.1
           python tools/build_web.py
           pyinstaller --noconfirm preklizka.spec
-          timeout 300 ./dist/Preklizka.exe --selftest || { echo "== selftest (bez AI) selhal"; cat dist/selftest.log; exit 1; }
+          report() { echo "::error title=$1::$( (cat dist/selftest.log; echo; echo '--- Preklizka.log'; tail -c 3000 dist/Preklizka.log) 2>&1 | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"; }
+          timeout 300 ./dist/Preklizka.exe --selftest || { report "selftest bez AI ($?)"; exit 1; }
           cat dist/selftest.log
-          timeout 400 ./dist/Preklizka.exe --selftest --ai || { echo "== selftest AI selhal"; cat dist/selftest.log; cat dist/Preklizka.log; exit 1; }
+          timeout 400 ./dist/Preklizka.exe --selftest --ai || { report "selftest AI ($?)"; exit 1; }
           cat dist/selftest.log
           rm -rf dist/Preklizka_modely dist/selftest.log
       - name: Vydat verzi
