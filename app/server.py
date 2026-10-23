@@ -57,6 +57,18 @@ def _get_ai_pool():
     return _ai_pool
 
 
+def kill_workers():
+    """Ukončit výpočetní procesy (při zavření okna nebo aktualizaci)."""
+    for pool in (_pool, _ai_pool):
+        if pool is None:
+            continue
+        for pr in list(getattr(pool, "_processes", {}).values()):
+            try:
+                pr.terminate()
+            except Exception:
+                pass
+
+
 def _run_ai(op, png, params, models):
     os.environ["PREKLIZKA_MODELS"] = models
     import ai as a

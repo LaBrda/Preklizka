@@ -19,6 +19,26 @@ REPO = "LaBrda/Preklizka"
 ASSET = "Preklizka.exe"
 
 
+def hard_exit(code: int = 0) -> None:
+    """Okamžitý konec. Ve Windows TerminateProcess: běžné ukončení čeká na úklid DLL (DirectML, .NET) a umí se zaseknout."""
+    srv = sys.modules.get("server")
+    if srv is not None:
+        try:
+            srv.kill_workers()
+        except Exception:                                # noqa: BLE001
+            pass
+    for f in (sys.stdout, sys.stderr):
+        try:
+            f.flush()
+        except Exception:                                # noqa: BLE001
+            pass
+    if os.name == "nt":
+        import ctypes
+        k = ctypes.windll.kernel32
+        k.TerminateProcess(k.GetCurrentProcess(), code)
+    os._exit(code)
+
+
 def exe_path() -> Path | None:
     return Path(sys.executable).resolve() if getattr(sys, "frozen", False) else None
 
@@ -69,7 +89,7 @@ def _swap_and_restart(new: Path, exe: Path, port: str) -> None:
     env = dict(os.environ, PREKLIZKA_PORT=port, PREKLIZKA_NO_BROWSER="1")
     flags = 0x00000010 if os.name == "nt" else 0       # CREATE_NEW_CONSOLE
     subprocess.Popen([str(exe)], env=env, creationflags=flags, close_fds=True)
-    os._exit(0)
+    hard_exit(0)
 
 
 def start_update(current: str) -> dict:

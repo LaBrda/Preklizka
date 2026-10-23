@@ -144,7 +144,8 @@ def main() -> None:
     if "--selftest" in sys.argv:
         code = selftest()
         sys.stdout.flush()
-        os._exit(code)                                       # knihovny (WebView, DirectML) drží vlákna, nečekat na ně
+        import updater
+        updater.hard_exit(code)
     os.environ["PREKLIZKA_DESKTOP"] = "1"
     import updater
     threading.Thread(target=updater.cleanup_old, daemon=True).start()
@@ -189,7 +190,7 @@ def main() -> None:
         webbrowser.open(url)
         while True:
             time.sleep(3600)
-    os._exit(0)                                              # okno zavřeno -> konec appky i výpočtů
+    updater.hard_exit(0)                                     # okno zavřeno -> konec appky i výpočtů
 
 
 if __name__ == "__main__":
