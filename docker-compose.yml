@@ -1,0 +1,36 @@
+# Překližkové vrstvy – appka + Watchtower (tlačítko Aktualizovat)
+# Před prvním spuštěním: soubor .env (viz .env.example) a jednorázově `docker login ghcr.io` (viz README).
+services:
+  vrstvy:
+    image: ghcr.io/labrda/preklizka:latest
+    container_name: preklizkove-vrstvy
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      WATCHTOWER_URL: http://watchtower:8080
+      WATCHTOWER_TOKEN: ${WATCHTOWER_TOKEN}
+      UPDATE_PASSWORD: ${UPDATE_PASSWORD:-}
+      MAX_PARALLEL: "1"
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1500M
+
+  watchtower:
+    image: containrrr/watchtower:1.7.1
+    container_name: vrstvy-watchtower
+    restart: unless-stopped
+    command: --http-api-update --label-enable --cleanup
+    environment:
+      WATCHTOWER_HTTP_API_TOKEN: ${WATCHTOWER_TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/.docker/config.json:/config.json:ro
+    deploy:
+      resources:
+        limits:
+          memory: 64M

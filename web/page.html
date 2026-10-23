@@ -1,0 +1,743 @@
+<title>Překližkové vrstvy</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Dílna: vlevo ovládání jako pracovní karta, vpravo velká deska; barvy dřeva, uhlu a laserové azurové */
+:root {
+  --bg: #f3efe8;          /* papír u stroje */
+  --panel: #fbf9f5;
+  --fg: #23211e;
+  --muted: #6c665d;
+  --line: #ddd5c8;
+  --wood: #e2c498;        /* bříza */
+  --char: #1d1c1f;        /* černá deska */
+  --cyan: #0098a6;        /* značky lepení */
+  --accent: #b5481f;      /* spálená hrana řezu */
+  --accent-fg: #ffffff;
+  --sheet: #ffffff;
+  --display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #171615; --panel: #201f1d; --fg: #ece6dc; --muted: #a39b8f; --line: #36332f;
+  --wood: #d4b588; --char: #0e0e10; --cyan: #3cc3cf; --accent: #e07a4d; --accent-fg: #1a1210; --sheet: #2a2825;
+  color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #171615; --panel: #201f1d; --fg: #ece6dc; --muted: #a39b8f; --line: #36332f;
+  --wood: #d4b588; --char: #0e0e10; --cyan: #3cc3cf; --accent: #e07a4d; --accent-fg: #1a1210; --sheet: #2a2825;
+  color-scheme: dark }
+
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.45 var(--body); }
+.wrap { display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); gap: 20px;
+  padding-block: 20px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  max-width: 1400px; margin: 0 auto; }
+@media (max-width: 820px) { .wrap { grid-template-columns: minmax(0, 1fr); } }
+
+header { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+h1 { font: 700 2.1rem/1 var(--display); letter-spacing: .01em; margin: 0; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); max-width: 62ch; }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 18px; align-self: start; min-width: 0; }
+.sec { display: flex; flex-direction: column; gap: 10px; }
+.sec h2 { font: 600 .78rem/1 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0; }
+
+.drop { border: 1.5px dashed var(--line); border-radius: 6px; padding: 14px; text-align: center; cursor: pointer; color: var(--muted); transition: border-color .15s, background .15s; }
+.drop:hover, .drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); color: var(--fg); }
+.drop strong { color: var(--fg); font-weight: 600; }
+.drop small { display: block; margin-top: 4px; font-size: .82rem; }
+.file-name { font: 500 .82rem var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+
+.colors { display: flex; flex-direction: column; gap: 8px; }
+.crow { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.sw { width: 28px; height: 28px; border-radius: 5px; border: 1px solid var(--line); cursor: pointer; position: relative; overflow: hidden; }
+.sw:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.swin { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; border: 0; padding: 0; }
+.cinfo { font: 400 .78rem var(--mono); color: var(--muted); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { font: 500 .8rem var(--body); border: 0; background: transparent; color: var(--muted); padding: 5px 8px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.seg button:focus-visible, .btn:focus-visible, .tab:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.f { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.f label { font-size: .82rem; color: var(--muted); }
+.f .in { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 5px; background: var(--sheet); }
+.f select { width: 100%; border: 0; background: transparent; color: var(--fg); font: 500 .92rem var(--mono); padding: 6px 8px; }
+.f input { width: 100%; min-width: 0; border: 0; background: transparent; color: var(--fg); font: 500 .92rem var(--mono); padding: 6px 8px; font-variant-numeric: tabular-nums; }
+.f .u { font: .75rem var(--mono); color: var(--muted); padding-right: 8px; }
+.check { display: flex; gap: 8px; align-items: center; font-size: .9rem; cursor: pointer; }
+.check input { accent-color: var(--accent); width: 16px; height: 16px; }
+.hint { font-size: .8rem; color: var(--muted); margin: 0; }
+.srv { display: flex; gap: 8px; align-items: center; font: 500 .8rem var(--mono); color: var(--muted); margin-left: auto; }
+
+.main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.tab { font: 600 .95rem var(--display); letter-spacing: .03em; text-transform: uppercase; border: 1px solid var(--line); background: var(--panel); color: var(--muted); padding: 6px 12px; border-radius: 5px; cursor: pointer; }
+.tab[aria-selected="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.stats { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 500 .78rem var(--mono); padding: 4px 8px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.chip.warn { border-color: var(--accent); color: var(--accent); }
+
+.stage { position: relative; background: var(--sheet); border: 1px solid var(--line); border-radius: 8px; padding: 16px; display: grid; place-items: center; min-height: 360px; }
+.stage .flat canvas, .stage img { max-width: 100%; max-height: 72vh; height: auto; display: block; }
+.stage img { background: #fff; }
+.busy { position: absolute; inset: 0; display: grid; place-items: center; background: color-mix(in srgb, var(--sheet) 70%, transparent); font: 600 1.1rem var(--display); letter-spacing: .05em; text-transform: uppercase; border-radius: 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: .85rem; color: var(--muted); }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+.legend i { width: 14px; height: 3px; display: inline-block; border-radius: 2px; }
+
+.layerinfo { font-size: .92rem; max-width: 70ch; margin: 0; }
+.dl { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { font: 600 .92rem var(--body); border: 1px solid var(--line); background: var(--panel); color: var(--fg); border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.btn:disabled { opacity: .5; cursor: default; }
+.msg { font-size: .85rem; color: var(--muted); min-height: 1.2em; margin: 0; }
+.scene { width: 100%; display: grid; place-items: center; perspective: 2200px; padding-block: 24px; overflow: hidden; }
+.stack { position: relative; width: min(100%, var(--maxw, 800px)); transform-style: preserve-3d; transition: transform .6s ease; }
+.ly { position: absolute; inset: 0; width: 100%; height: 100%; transition: transform .6s ease, opacity .3s; filter: drop-shadow(0 3px 4px rgba(0,0,0,.35)); }
+.ly.off { opacity: 0; pointer-events: none; }
+.flat { width: 100%; display: grid; place-items: center; }
+#cbg { max-width: 100%; max-height: 72vh; height: auto; display: block; border-radius: 4px; }
+.flat canvas { border-radius: 4px; background-color: #d9d6d0; background-image: conic-gradient(#c3bfb8 25%, transparent 0 50%, #c3bfb8 0 75%, transparent 0); background-size: 18px 18px; }
+.asmctl { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+.range { display: inline-flex; gap: 8px; align-items: center; font-size: .9rem; }
+.range input { accent-color: var(--accent); width: 160px; }
+.range input.num { width: 64px; border: 1px solid var(--line); border-radius: 5px; background: var(--sheet); color: var(--fg); font: 500 .9rem var(--mono); padding: 4px 6px; }
+.pal { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.pal button { width: 26px; height: 26px; border-radius: 5px; border: 1px solid var(--line); cursor: pointer; padding: 0; }
+.pal button[aria-pressed="true"] { outline: 3px solid var(--accent); outline-offset: 1px; }
+#clines { max-width: 100%; max-height: 72vh; height: auto; display: block; border-radius: 4px; background: #fff; }
+#vecimg { max-width: 100%; max-height: 72vh; height: auto; display: block; background: #fff; border-radius: 4px; }
+.vis { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.vbtn { font: 500 .82rem var(--body); border: 0; background: transparent; color: var(--muted); padding: 6px 10px; cursor: pointer; }
+.vbtn + .vbtn { border-left: 1px solid var(--line); }
+.vbtn[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.vbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.legend i.sq { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--line); }
+.legend i.chk { background-color: #d9d6d0; background-image: conic-gradient(#c3bfb8 25%, transparent 0 50%, #c3bfb8 0 75%, transparent 0); background-size: 7px 7px; }
+@media (prefers-reduced-motion: reduce) { .stack, .ly { transition: none; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Překližkové vrstvy</h1>
+    <div class="srv" id="srv" hidden>
+      <span id="srvInfo"></span>
+      <button class="btn" id="updBtn" type="button">Aktualizovat</button>
+    </div>
+    <p>Z obrázku postavičky udělá jeden řezný soubor se 3 až 5 vrstvami: černou deskou, natřenými vrstvami a horní vrstvou z čistého dřeva s rámečkem. Postup: pozadí, linky, vrstvy.</p>
+  </header>
+
+  <aside class="panel">
+    <div class="sec">
+      <h2>Obrázek</h2>
+      <label class="drop" id="drop" for="file">
+        <strong>Vybrat obrázek</strong> nebo ho sem přetáhnout
+        <small>PNG s průhledným pozadím je nejlepší, jde i JPG s bílým pozadím</small>
+      </label>
+      <input type="file" id="file" accept="image/*" hidden>
+      <div class="file-name" id="fname">Ukázka: kreslené autíčko</div>
+    </div>
+
+    <div class="sec">
+      <h2>Pozadí</h2>
+      <div class="fields">
+        <div class="f"><label for="bgTol">Citlivost</label><div class="in"><input id="bgTol" type="number" min="2" max="120" step="2" value="30"></div></div>
+      </div>
+      <div class="seg" role="group" aria-label="Kliknutí do obrázku označí">
+        <button type="button" id="mBg" aria-pressed="true">Klik = pozadí</button>
+        <button type="button" id="mFg" aria-pressed="false">Klik = postava</button>
+        <button type="button" id="mReset" aria-pressed="false">Zrušit kliky</button>
+      </div>
+      <p class="hint">V záložce Pozadí klikni do obrázku na místo, které se špatně rozpoznalo. Vyšší citlivost odebere víc barev podobných pozadí.</p>
+    </div>
+
+    <div class="sec">
+      <h2>Barvy</h2>
+      <div class="colors" id="colors"></div>
+      <p class="hint">Kliknutím na čtvereček barvu změníš. U každé barvy vyber, kam patří. Obrys je černá deska a dřevěné linky nahoře. Čísla jsou natřené vrstvy, vyšší číslo leží výš (bílou natři bíle, nebo nech holé dřevo). Dřevo znamená, že plocha bude vystouplá jako součást horní vrstvy.</p>
+      <div class="fields">
+        <div class="f"><label for="nLayers">Počet vrstev</label><div class="in"><select id="nLayers"><option value="3" selected>3</option><option value="4">4</option><option value="5">5</option></select></div></div>
+        <div class="f"><label for="nColors">Počet barev</label><div class="in"><input id="nColors" type="number" min="2" max="16" step="1" value="12"></div></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h2>Rozměry</h2>
+      <div class="fields">
+        <div class="f"><label for="width">Šířka postavy</label><div class="in"><input id="width" type="number" min="50" max="2000" step="5" value="300"><span class="u">mm</span></div></div>
+        <div class="f"><label for="frame">Rámeček</label><div class="in"><input id="frame" type="number" min="0" max="100" step="1" value="10"><span class="u">mm</span></div></div>
+        <div class="f"><label for="gap">Mezera k rámečku</label><div class="in"><input id="gap" type="number" min="-30" max="200" step="1" value="-3"><span class="u">mm</span></div></div>
+        <div class="f"><label for="struts">Spojky k rámečku</label><div class="in"><select id="struts"><option value="0" selected>žádné</option><option value="1">1 (vlevo)</option><option value="2">2 (vlevo, vpravo)</option><option value="3">3 (+ dole)</option><option value="4">4 (všechny strany)</option></select></div></div>
+        <div class="f"><label for="strutWidth">Šířka spojky</label><div class="in"><input id="strutWidth" type="number" min="1" max="30" step="0.5" value="4"><span class="u">mm</span></div></div>
+        <div class="f"><label for="chamfer">Seříznutí rohů</label><div class="in"><input id="chamfer" type="number" min="0" max="50" step="1" value="4"><span class="u">mm</span></div></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h2>Řezání</h2>
+      <p class="hint">Záporná „Mezera k rámečku“ znamená, že postava zasáhne do rámečku a splyne s ním, takže každá vrstva je jeden list. Spojky jsou rovné pásky navíc, když postava rámečku nedosáhne.</p>
+      <div class="fields">
+        <div class="f"><label for="minFeature">Nejtenčí dřevo</label><div class="in"><input id="minFeature" type="number" min="0.3" max="10" step="0.1" value="1.2"><span class="u">mm</span></div></div>
+        <div class="f"><label for="rim">Okraj postavy</label><div class="in"><input id="rim" type="number" min="0" max="20" step="0.5" value="3"><span class="u">mm</span></div></div>
+        <div class="f"><label for="sepLine">Linka mezi barvami</label><div class="in"><input id="sepLine" type="number" min="0" max="10" step="0.5" value="1.5"><span class="u">mm</span></div></div>
+        <div class="f"><label for="hole">Černá skrz od</label><div class="in"><input id="hole" type="number" min="1" max="50" step="0.5" value="3"><span class="u">mm</span></div></div>
+        <div class="f"><label for="smooth">Vyhlazení</label><div class="in"><select id="smooth"><option value="0">0 (bez)</option><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option><option value="5">5 (nejvíc)</option></select></div></div>
+        <div class="f"><label for="minPiece">Nejmenší kousek</label><div class="in"><input id="minPiece" type="number" min="0" max="500" step="1" value="10"><span class="u">mm²</span></div></div>
+      </div>
+      <label class="check"><input type="checkbox" id="engrave"> Gravírovat černé detaily na dřevě</label>
+      <label class="check"><input type="checkbox" id="bridges" checked> Spojit ostrůvky linkou (nic se nelepí)</label>
+      <label class="check"><input type="checkbox" id="dropThin"> Vynechat tenké linky (vousky, chloupky)</label>
+      <p class="hint">„Vyhlazení“ zaoblí schodky po pixelech a v SVG udělá z řezů hladké křivky. Vyšší číslo je hladší, ale ztrácí drobné detaily. „Gravírovat černé detaily“ vypálí černou kresbu, která leží na dřevě (zorničky, čenich, obrys rukavic), aby se neztratila. V SVG je fialová výplň. „Linka mezi barvami“ je dřevěné ohraničení každé barevné plochy, i tam, kde v obrázku černá čára není. „Okraj postavy“ je dřevěný pás kolem celé siluety. Drží postavu pohromadě a odděluje ji od černého pozadí. „Černá skrz od“ určuje, jak široká černá plocha uvnitř okraje se vyřízne až na desku. Užší černé linky zůstanou obrysem z dřeva.</p>
+    </div>
+  </aside>
+
+  <section class="main">
+    <div class="bar">
+      <div class="tabs" role="tablist" id="tabs"></div>
+      <div class="stats" id="stats"></div>
+    </div>
+    <div class="stage" id="stage">
+      <div class="scene" id="scene">
+        <div class="stack" id="stack"></div>
+      </div>
+      <div class="flat" id="flat" hidden><canvas id="cflat" aria-label="Vybraná vrstva"></canvas></div>
+      <img id="cuts" alt="Řezné čáry všech vrstev" hidden>
+      <div class="flat" id="lineview" hidden><canvas id="clines" aria-label="Linky a políčka, kliknutím upravíš" style="touch-action:none;cursor:crosshair"></canvas></div>
+      <div class="flat" id="vecview" hidden><img id="vecimg" alt="Obrázek převedený na křivky"></div>
+      <div class="flat" id="bgview" hidden><canvas id="cbg" aria-label="Rozpoznané pozadí, kliknutím opravíš" style="cursor:crosshair"></canvas></div>
+      <div class="busy" id="busy" hidden>Počítám…</div>
+    </div>
+    <div class="asmctl" id="asmctl">
+      <button class="btn" id="explode" type="button">Rozložit</button>
+      <label class="range" for="spread">Rozestup <input type="range" id="spread" min="0" max="100" value="0"></label>
+      <label class="check"><input type="checkbox" id="tilt" checked> Náklon</label>
+      <div class="vis" role="group" aria-label="Zobrazené vrstvy" id="vis"></div>
+    </div>
+    <div class="asmctl" id="linectl" hidden>
+      <div class="seg" role="group" aria-label="Nástroj">
+        <button type="button" id="lmColor" aria-pressed="true">Barva políčka</button>
+        <button type="button" id="lmHole" aria-pressed="false">Štětec: černá plocha</button>
+        <button type="button" id="lmLine" aria-pressed="false">Štětec: obrys</button>
+        <button type="button" id="lmErase" aria-pressed="false">Štětec: smazat tah</button>
+      </div>
+      <div class="pal" id="pal" role="group" aria-label="Paleta"></div>
+      <label class="range" for="brush">Štětec <input type="range" id="brush" min="1" max="20" value="4"> <span id="brushV">4 mm</span></label>
+      <button class="btn" id="lReset" type="button">Zrušit úpravy</button>
+      <button class="btn" id="lDl" type="button">Stáhnout linky SVG</button>
+    </div>
+    <div class="asmctl" id="vecctl" hidden>
+      <label class="range" for="vColors">Barvy <input type="number" id="vColors" min="2" max="32" step="1" value="8" class="num"></label>
+      <label class="range" for="vDetail">Detail <input type="range" id="vDetail" min="1" max="10" value="6"></label>
+      <label class="range" for="vBlur">Potlačit šum <input type="range" id="vBlur" min="0" max="4" value="0"></label>
+      <label class="range" for="vMin">Nejmenší skvrna <input type="number" id="vMin" min="1" max="2000" step="1" value="12" class="num"> px</label>
+      <label class="check"><input type="checkbox" id="vBg" checked> Bez pozadí</label>
+      <button class="btn" id="vDl" type="button">Stáhnout křivky SVG</button>
+      <button class="btn" id="vUse" type="button">Použít pro vrstvy</button>
+      <button class="btn" id="vOrig" type="button" hidden>Vrátit originál</button>
+    </div>
+    <div class="legend" id="legend"></div>
+    <p class="layerinfo" id="layerinfo"></p>
+    <div class="dl">
+      <button class="btn primary" id="dlAll">Stáhnout SVG pro laser</button>
+    </div>
+    <p class="msg" id="msg" role="status"></p>
+  </section>
+</div>
+
+<script>
+/*CORE*/
+</script>
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const MAXPX = 1400;
+  const NL = () => +$("nLayers").value;
+  function info(v) {
+    const n = NL();
+    if (v === "bg") return "Krok 1: pozadí. Růžově je to, co se odstraní. Když je část postavy růžová, přepni na Klik = postava a klikni do ní. Když zůstal kus pozadí, klikni na něj v režimu Klik = pozadí.";
+    if (v === "vec") return "Samostatná funkce: obrázek převedený na barevné plochy s hladkými křivkami. Stáhneš ho jako SVG (třeba do Inkscapu), nebo ho tlačítkem Použít pro vrstvy předáš generátoru vrstev, což u malých a zubatých obrázků dá hladší řezy. U složitých obrázků přidej barvy a potlač šum.";
+    if (v === "lines") return "Krok 2: linky. Kresba z obrázku: dřevěné linky (obrys) oddělují políčka. Režim Barva políčka: vyber barvu v paletě a klikni do políčka. Štětcem černá plocha přejeď černý tvar, který má jít skrz na černou desku (zornice, obočí). Štětcem obrys ho vrátíš na dřevěnou linku. Štětcem smazat tah odstraníš nechtěný tah (vous, chlup) a sousední plochy se spojí. Vrstvy se přepočítají, když přejdeš na jinou záložku.";
+    if (v === "asm") return "Vrstvy položené na sebe. Tlačítkem Rozložit je rozebereš, posuvníkem nastavíš rozestup a jednotlivé vrstvy můžeš skrýt. Bez náklonu a bez rozestupu vidíš hotový obrázek shora.";
+    if (v === "cut") return "Řezné čáry v jednom SVG, přesně jak se stáhnou. Černě řez, v barvě nátěru linka kolem plochy k natření, azurově značky lepení, červeně popisky. V programu laseru nastav barevné linky na slabé gravírování, nebo je vypni.";
+    const k = +v;
+    if (k === 1) return "Vrstva 1, celá deska. Natři ji černě. Azurová čára ukazuje, kam přilepit vrstvu 2.";
+    if (k === n) return `Vrstva ${k}, rámeček a postava z čistého dřeva. Šachovnice jsou díry, kterými prosvítají vrstvy pod ní.`;
+    return `Vrstva ${k}, rámeček a silueta. Barevně jsou plochy, které budou vidět a je potřeba je natřít. Světlé dřevo zůstane schované pod vrstvou ${k + 1}, to natírat nemusíš. Šachovnice jsou díry.`;
+  }
+  function legend(v) {
+    const n = NL(), k = +v;
+    if (v === "asm") return "";
+    if (v === "bg") return '<span><i class="sq" style="background:#d84a8a"></i>pozadí (odstraní se)</span><span><i class="sq" style="background:#fff"></i>postava</span><span><i class="sq" style="background:#2fa3d6"></i>tvoje kliky</span>';
+    if (v === "vec") return vecRes ? vecRes.colors.map((c) => `<span><i class="sq" style="background:${c.hex}"></i>${c.hex} ${Math.max(1, Math.round(c.share * 100))}\u00a0%</span>`).join("") : "";
+    if (v === "lines") return '<span><i class="sq" style="background:#d9b98a"></i>dřevěná linka (obrys)</span><span><i class="sq" style="background:#111"></i>černá plocha skrz na desku</span><span><i class="sq" style="background:linear-gradient(90deg,#959ca2 50%,#d48a1d 0)"></i>políčka v barvě</span>';
+    if (v === "cut") return '<span><i style="background:#222"></i>řez</span><span><i style="background:linear-gradient(90deg,#c48338 50%,#efacbf 0)"></i>ohraničení nátěru v jeho barvě</span><span><i style="background:#00b8c8"></i>značka lepení</span><span><i class="sq" style="background:#ff00ff"></i>gravírovat (výplň)</span><span><i style="background:#f00"></i>popisek</span>';
+    if (k === 1) return '<span><i class="sq" style="background:#1e1e22"></i>natřít černě</span><span><i style="background:#00bec5"></i>značka pro vrstvu 2</span>';
+    if (k === n) return '<span><i class="sq" style="background:#e8cca0"></i>čisté dřevo</span><span><i class="sq" style="background:#3a2416"></i>gravírovat</span><span><i class="sq chk"></i>díra</span><span><i style="background:#784e2c"></i>propálená hrana</span>';
+    return `<span><i class="sq" style="background:linear-gradient(90deg,#c48338 50%,#efacbf 0)"></i>natřít (bude vidět)</span><span><i class="sq" style="background:#d8b88a"></i>holé dřevo pod vrstvou ${k + 1}</span><span><i style="background:linear-gradient(90deg,#7a4f22 50%,#8f6672 0)"></i>linka nátěru (v SVG v barvě nátěru)</span><span><i class="sq chk"></i>díra</span><span><i style="background:#00bec5"></i>značka pro kousky vrstvy ${k + 1}</span>`;
+  }
+  let src = null, an = null, roles = null, res = null, view = "asm", timer = 0, layerURL = null;
+
+  function opts() {
+    const n = (id) => parseFloat($(id).value);
+    return { layers: NL(), width: n("width"), frame: n("frame"), gap: n("gap"), chamfer: n("chamfer"), hole: n("hole"), rim: n("rim"), struts: +$("struts").value, strutWidth: n("strutWidth"), sepLine: n("sepLine"),
+      minFeature: n("minFeature"), minPiece: n("minPiece"), dropThin: $("dropThin").checked, bridges: $("bridges").checked, engrave: $("engrave").checked, smooth: +$("smooth").value, maskSmooth: 0.25 + 0.08 * +$("smooth").value };
+  }
+  const hex = (c) => "#" + c.map((v) => v.toString(16).padStart(2, "0")).join("");
+
+  function busy(on) { $("busy").hidden = !on; }
+  function later(fn) {
+    busy(true);
+    setTimeout(async () => {
+      try { await fn(); } catch (e) { console.error(e); $("msg").textContent = "Výpočet selhal: " + e.message; }
+      busy(false);
+    }, 30);
+  }
+  // ---- server (Docker na Proxmoxu): přesnější výpočet ve vyšším rozlišení; bez serveru se počítá v prohlížeči
+  let server = null;
+  const b64 = (u8) => { let s = ""; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+  (async () => {
+    if (!/^https?:$/.test(location.protocol)) return;
+    try {
+      const r = await fetch("api/health", { cache: "no-store" });
+      if (!r.ok) return;
+      server = await r.json();
+      $("srv").hidden = false;
+      $("srvInfo").textContent = "server " + (server.version || "?");
+      $("updBtn").hidden = !server.update;
+      if (an) rebuild();
+    } catch (e) { server = null; }
+  })();
+  $("updBtn").addEventListener("click", async () => {
+    let pw = "";
+    if (server && server.updateNeedsPassword) { pw = window.prompt ? (window.prompt("Heslo pro aktualizaci") || "") : ""; }
+    $("msg").textContent = "Stahuji novou verzi…";
+    try {
+      const r = await fetch("api/update", { method: "POST", headers: { "X-Update-Password": pw } });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { $("msg").textContent = "Aktualizace se nepovedla: " + (j.detail || r.status); return; }
+      $("msg").textContent = "Aktualizace spuštěna. Pokud byla nová verze, appka se za chvíli restartuje. Pak obnov stránku.";
+      setTimeout(async () => {
+        try { const h = await (await fetch("api/health", { cache: "no-store" })).json(); $("srvInfo").textContent = "server " + h.version; $("msg").textContent = h.version !== server.version ? "Hotovo, běží nová verze " + h.version + ". Obnov stránku." : "Žádná novější verze není."; }
+        catch (e) { $("msg").textContent = "Appka se restartuje, za chvíli obnov stránku."; }
+      }, 20000);
+    } catch (e) { $("msg").textContent = "Aktualizace se nepovedla: " + e.message; }
+  });
+  async function serverBuild(cmp) {
+    const body = { W: an.W, H: an.H, cent: an.cent, roles, opt: opts(),
+      lab: b64(new Uint8Array(cmp.lab.buffer)), line: b64(cmp.line), hole: b64(cmp.hole) };
+    const r = await fetch("api/build", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.detail || ("server " + r.status)); }
+    const j = await r.json();
+    const layers = await Promise.all(j.layers.map(async (pngB64) => {
+      const bin = Uint8Array.from(atob(pngB64), (c) => c.charCodeAt(0));
+      const bmp = await createImageBitmap(new Blob([bin], { type: "image/png" }));
+      return { w: j.lw, h: j.lh, bitmap: bmp };
+    }));
+    return { all: j.svg, layers, cutPx: j.cutPx, stats: j.stats, mm: j.mm };
+  }
+
+  function analyze() {
+    later(() => {
+      an = LaserLayers.analyze(src.data, src.w, src.h, Math.max(2, Math.min(16, parseInt($("nColors").value) || 12)), { tol: +$("bgTol").value || 30, bgSeeds, fgSeeds });
+      drawBg();
+      roles = defaultRoles();
+      cellColor = new Map(); holeEdit = new Int8Array(an.W * an.H); outlineKey = ""; erase = new Uint8Array(an.W * an.H); colorClicks = []; eraseVer++;
+      computeLA();
+      drawColors();
+      buildNow();
+    });
+  }
+  // natírané barvy rozdělit do vrstev 2..N-1: větší plochy níž
+  function defaultRoles() {
+    const ro = an.roles.slice(), n = NL(), slots = n - 2;
+    const paint = ro.map((r, k) => k).filter((k) => typeof ro[k] === "number" && !an.whiteish[k]).sort((a, b) => an.areas[b] - an.areas[a]);
+    ro.forEach((r, k) => { if (an.whiteish[k]) ro[k] = n - 1; });   // bílá do nejvyšší natřené vrstvy
+    const per = Math.ceil(paint.length / slots);
+    paint.forEach((k, i) => (ro[k] = 2 + Math.min(slots - 1, Math.floor(i / per))));
+    return ro;
+  }
+  function rebuild() { clearTimeout(timer); timer = setTimeout(() => later(buildNow), 350); }
+
+  // vrstva v náhledu: barvy z rastru, ale tvar a hrany z týchž křivek jako SVG pro laser
+  function drawLayer(c, i) {
+    const l = res.layers[i], S = l.bitmap ? 1 : 2;
+    c.width = l.w * S; c.height = l.h * S;
+    const g = c.getContext("2d");
+    let tmp = l.bitmap;
+    if (!tmp) { tmp = document.createElement("canvas"); tmp.width = l.w; tmp.height = l.h; tmp.getContext("2d").putImageData(new ImageData(l.data, l.w, l.h), 0, 0); }
+    let path = null;
+    try { path = res.cutPx && res.cutPx[i] ? new Path2D(res.cutPx[i]) : null; } catch (e) { path = null; }
+    g.setTransform(S, 0, 0, S, 0, 0);
+    g.imageSmoothingEnabled = true;
+    if (!path) { g.drawImage(tmp, 0, 0); return; }
+    g.save(); g.clip(path, "evenodd"); g.drawImage(tmp, 0, 0); g.restore();
+    g.lineWidth = l.bitmap ? 2.6 : 2.2; g.strokeStyle = i === 0 ? "#0a0a0c" : "#7a4e2c"; g.lineJoin = "round"; g.stroke(path);
+  }
+
+  // ---- nástroj Linky ----
+  let la = null, cellColor = new Map(), holeEdit = null, outlineKey = "", layersDirty = false, lineMode = "color", palSel = -1;
+  let erase = null, colorClicks = [], eraseVer = 0;   // smazané tahy; kliky barvy (pixel, barva) přežijí přepočet políček
+  function computeLA() {
+    const key = roles.map((r) => (r === "outline" ? 1 : 0)).join("") + "|" + $("hole").value + "|" + eraseVer;
+    if (key !== outlineKey) {
+      outlineKey = key;
+      if (!erase || erase.length !== an.W * an.H) erase = new Uint8Array(an.W * an.H);
+      la = LaserLayers.lineArt(an, roles, { widthMm: +$("width").value || 300, hole: +$("hole").value || 3, minCell: 0, erase, autoHole: false });
+      cellColor = new Map();
+      for (const [px, col] of colorClicks) { const c = la.cells[px]; if (c) cellColor.set(c, col); }
+    }
+    drawPalette(); drawLines();
+  }
+  function cellRGB(i) {
+    const c = la.cells[i];
+    const k = cellColor.has(c) ? cellColor.get(c) : la.multi[c] && an.lab[i] >= 0 && roles[an.lab[i]] !== "outline" ? an.lab[i] : la.dom[c];
+    return k >= 0 ? an.cent[k] : [200, 200, 200];
+  }
+  function drawLines() {
+    if (!la) return;
+    const c = $("clines"); c.width = la.W; c.height = la.H;
+    const g = c.getContext("2d"), im = g.createImageData(la.W, la.H), d = im.data;
+    for (let i = 0; i < la.W * la.H; i++) {
+      let col;
+      if (an.lab[i] < 0) col = [255, 255, 255];
+      else if (la.line[i] && eraseLive && eraseLive[i]) col = [235, 235, 235];
+      else if (la.line[i]) { const e = holeEdit[i], h = e > 0 ? 1 : e < 0 ? 0 : la.hole[i]; col = h ? [17, 17, 17] : [217, 185, 138]; }
+      else if (la.cells[i]) col = cellRGB(i);
+      else col = an.cent[an.lab[i]];
+      d[i * 4] = col[0]; d[i * 4 + 1] = col[1]; d[i * 4 + 2] = col[2]; d[i * 4 + 3] = 255;
+    }
+    g.putImageData(im, 0, 0);
+  }
+  function drawPalette() {
+    const p = $("pal"); p.innerHTML = "";
+    an.cent.forEach((c, k) => {
+      if (roles[k] === "outline") return;
+      if (palSel < 0) palSel = k;
+      const b = document.createElement("button"); b.type = "button"; b.title = "#" + c.map((v) => v.toString(16).padStart(2, "0")).join("");
+      b.style.background = `rgb(${c.join(",")})`; b.setAttribute("aria-pressed", String(k === palSel)); b.setAttribute("aria-label", "Barva " + b.title);
+      b.onclick = () => { palSel = k; setLineMode("color"); drawPalette(); };
+      p.appendChild(b);
+    });
+  }
+  const setLineMode = (m) => { lineMode = m; ["Color", "Hole", "Line", "Erase"].forEach((n) => $("lm" + n).setAttribute("aria-pressed", String(m === n.toLowerCase()))); };
+  $("lmErase").onclick = () => setLineMode("erase");
+  $("lmColor").onclick = () => setLineMode("color");
+  $("lmHole").onclick = () => setLineMode("hole");
+  $("lmLine").onclick = () => setLineMode("line");
+  $("brush").oninput = () => { $("brushV").textContent = $("brush").value + " mm"; };
+  $("lReset").onclick = () => { if (!la) return; colorClicks = []; cellColor = new Map(); holeEdit = new Int8Array(la.W * la.H); erase = new Uint8Array(la.W * la.H); eraseVer++; computeLA(); markDirty(); };
+  $("lDl").onclick = () => la && save(LaserLayers.linesSvg(la, holeEdit, +$("width").value || 300), "_linky.svg");
+  function markDirty() { layersDirty = true; $("msg").textContent = "Úpravy linek se promítnou do vrstev po přepnutí na jinou záložku."; }
+  let painting = false, raf = 0, eraseLive = null;
+  function linePos(e) {
+    const r = $("clines").getBoundingClientRect();
+    return [Math.floor((e.clientX - r.left) / r.width * la.W), Math.floor((e.clientY - r.top) / r.height * la.H)];
+  }
+  function brushAt(e) {
+    const [x, y] = linePos(e), rad = Math.max(1, Math.round((+$("brush").value / 2) / la.mm)), v = lineMode === "hole" ? 1 : -1;
+    for (let yy = Math.max(0, y - rad); yy <= Math.min(la.H - 1, y + rad); yy++) for (let xx = Math.max(0, x - rad); xx <= Math.min(la.W - 1, x + rad); xx++) {
+      if ((xx - x) * (xx - x) + (yy - y) * (yy - y) > rad * rad) continue;
+      const i = yy * la.W + xx;
+      if (lineMode === "erase") { if (la.line[i]) { erase[i] = 1; eraseLive[i] = 1; } }
+      else if (la.line[i]) holeEdit[i] = v;
+    }
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; drawLines(); });
+  }
+  $("clines").addEventListener("pointerdown", (e) => {
+    if (!la) return;
+    if (lineMode === "color") {
+      const [x, y] = linePos(e); if (x < 0 || y < 0 || x >= la.W || y >= la.H) return;
+      const c = la.cells[y * la.W + x];
+      if (!c) { $("msg").textContent = "Tohle je linka. Barva se dává do políček mezi linkami."; return; }
+      if (palSel >= 0) { cellColor.set(c, palSel); colorClicks.push([y * la.W + x, palSel]); drawLines(); markDirty(); }
+      return;
+    }
+    painting = true; eraseLive = new Uint8Array(la.W * la.H); e.currentTarget.setPointerCapture(e.pointerId); brushAt(e);
+  });
+  $("clines").addEventListener("pointermove", (e) => { if (painting) brushAt(e); });
+  $("clines").addEventListener("pointerup", () => {
+    if (!painting) return;
+    painting = false;
+    if (lineMode === "erase") { eraseVer++; eraseLive = null; computeLA(); }   // přepočítat políčka: smazaný tah spojí sousední plochy
+    markDirty();
+  });
+
+  async function buildNow() {
+    if (roles.every((r) => r === "outline")) { $("msg").textContent = "Aspoň jedna barva musí být natřená vrstva nebo dřevo."; return; }
+    computeLA();
+    const cmp = LaserLayers.composeLines(an, la, cellColor, holeEdit);
+    res = null;
+    if (server) {
+      try { res = await serverBuild(cmp); }
+      catch (e) { pendingMsg = "Server nepočítal (" + e.message + "), použil se výpočet v prohlížeči."; }
+    }
+    if (!res) res = LaserLayers.build(Object.assign({}, an, { lab: cmp.lab }), roles, Object.assign(opts(), { lineData: { line: cmp.line, hole: cmp.hole } }));
+    layersDirty = false;
+    const s = res.stats, warn = s.silParts > 1;
+    $("stats").innerHTML = "";
+    const chip = (t, w) => { const e = document.createElement("span"); e.className = "chip" + (w ? " warn" : ""); e.textContent = t; $("stats").appendChild(e); };
+    chip(`deska ${Math.round(s.wmm)} × ${Math.round(s.hmm)} mm`);
+    chip(`silueta: ${s.silParts} ${s.silParts === 1 ? "díl" : "díly"}`, warn);
+    chip(`otvory na desku: ${s.holes}`);
+    chip(`kousky k lepení: ${s.pieces}`, s.pieces > 0);
+    if (s.bridges) chip(`spojky: ${s.bridges}`);
+    if (s.engine === "server") chip("počítá server ×" + s.upscale);
+    chip(s.frameJoined ? "rámeček spojený s postavou" : "rámeček oddělený", !s.frameJoined);
+    makeLayerUI(res.layers.length);
+    res.layers.forEach((l, i) => drawLayer($("c" + (i + 1)), i));
+    const st = $("stack"), L0 = res.layers[0];
+    st.style.aspectRatio = L0.w + " / " + L0.h;
+    st.style.setProperty("--maxw", Math.round(Math.min(900, window.innerHeight * 0.68 * L0.w / L0.h)) + "px");
+    const cs = res.all.replace(/stroke-width:0\.05/g, "stroke-width:" + (Math.max(s.wmm, s.hmm) / 450).toFixed(2)).replace(/#00e0e0/g, "#00b8c8");
+    if (layerURL) URL.revokeObjectURL(layerURL);
+    layerURL = URL.createObjectURL(new Blob([cs], { type: "image/svg+xml" }));
+    $("cuts").src = layerURL;
+    place();
+    $("msg").textContent = pendingMsg; pendingMsg = "";
+    show(view);
+  }
+
+  function drawColors() {
+    const box = $("colors"); box.innerHTML = "";
+    const total = an.areas.reduce((a, b) => a + b, 0);
+    an.cent.forEach((c, k) => {
+      const row = document.createElement("div"); row.className = "crow";
+      // klik na barvu otevře paletu: změní barvu nátěru v náhledu, v linkách i v SVG
+      const sw = document.createElement("label"); sw.className = "sw"; sw.style.background = hex(c); sw.title = "Změnit barvu";
+      const ci = document.createElement("input"); ci.type = "color"; ci.value = hex(c); ci.className = "swin"; ci.setAttribute("aria-label", "Změnit barvu " + hex(c));
+      ci.addEventListener("input", () => { an.cent[k] = [1, 3, 5].map((o) => parseInt(ci.value.substr(o, 2), 16)); sw.style.background = ci.value; info.textContent = `${ci.value} ${Math.round(100 * an.areas[k] / total)}\u00a0%`; drawPalette(); drawLines(); });
+      ci.addEventListener("change", () => { drawColors(); rebuild(); });
+      sw.appendChild(ci);
+      const info = document.createElement("div"); info.className = "cinfo"; info.textContent = `${hex(c)} ${Math.round(100 * an.areas[k] / total)}\u00a0%`;
+      const seg = document.createElement("div"); seg.className = "seg"; seg.setAttribute("role", "group"); seg.setAttribute("aria-label", "Role barvy " + hex(c));
+      const opts_ = ["outline"]; for (let k = 2; k < NL(); k++) opts_.push(k); opts_.push("wood");
+      if (typeof roles[k] === "number") roles[k] = Math.min(roles[k], NL() - 1);
+      opts_.forEach((r) => {
+        const b = document.createElement("button"); b.type = "button";
+        b.textContent = r === "outline" ? "Obrys" : r === "wood" ? "Dřevo" : String(r);
+        b.title = r === "outline" ? "černá deska / dřevěné linky" : r === "wood" ? "holé dřevo v horní vrstvě" : "natřít na vrstvě " + r;
+        b.setAttribute("aria-pressed", roles[k] === r ? "true" : "false");
+        b.onclick = () => { roles[k] = r; seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false")); rebuild(); };
+        seg.appendChild(b);
+      });
+      row.append(sw, info, seg); box.appendChild(row);
+    });
+  }
+
+  let uiLayers = 0;
+  function makeLayerUI(n) {
+    if (n === uiLayers) return;
+    uiLayers = n;
+    const tabs = $("tabs"); tabs.innerHTML = "";
+    const ids = ["bg", "vec", "lines", "asm"]; for (let k = 1; k <= n; k++) ids.push(String(k)); ids.push("cut");
+    ids.forEach((t) => {
+      const b = document.createElement("button"); b.className = "tab"; b.setAttribute("role", "tab"); b.id = "t-" + t;
+      b.textContent = t === "bg" ? "Pozadí" : t === "vec" ? "Křivky" : t === "lines" ? "Linky" : t === "asm" ? "Sestava" : t === "cut" ? "Řezy" : "Vrstva " + t;
+      b.addEventListener("click", () => show(t)); tabs.appendChild(b);
+    });
+    const st = $("stack"), vis = $("vis"); st.innerHTML = ""; vis.innerHTML = "";
+    for (let k = 1; k <= n; k++) {
+      const c = document.createElement("canvas"); c.className = "ly"; c.id = "c" + k; c.setAttribute("aria-label", "Vrstva " + k); st.appendChild(c);
+      const b = document.createElement("button"); b.type = "button"; b.className = "vbtn"; b.setAttribute("aria-pressed", "true");
+      b.textContent = k === 1 ? "1 deska" : k === n ? n + " dřevo" : String(k);
+      b.addEventListener("click", () => { const on = b.getAttribute("aria-pressed") !== "true"; b.setAttribute("aria-pressed", String(on)); c.classList.toggle("off", !on); });
+      vis.appendChild(b);
+    }
+    if (/^\d+$/.test(view) && +view > n) view = "asm";
+  }
+  function show(v) {
+    if (view === "lines" && v !== "lines" && layersDirty && an) { view = v; later(buildNow); return; }
+    view = v;
+    const isLayer = /^\d+$/.test(String(v));
+    document.querySelectorAll("#tabs .tab").forEach((b) => b.setAttribute("aria-selected", String(b.id === "t-" + v)));
+    $("layerinfo").textContent = info(v);
+    $("legend").innerHTML = legend(v);
+    $("scene").hidden = v !== "asm"; $("asmctl").hidden = v !== "asm";
+    $("flat").hidden = !isLayer; $("lineview").hidden = v !== "lines"; $("linectl").hidden = v !== "lines";
+    if (v === "lines") drawLines(); $("cuts").hidden = v !== "cut"; $("bgview").hidden = v !== "bg";
+    $("vecview").hidden = v !== "vec"; $("vecctl").hidden = v !== "vec";
+    if (v === "vec") ensureVec();
+    if (res && isLayer) {
+      drawLayer($("cflat"), +v - 1);
+    }
+    if (v === "asm") place();
+  }
+
+  // ---- pozadí: náhled a klikání ----
+  let bgSeeds = [], fgSeeds = [], clickMode = "bg";
+  function drawBg() {
+    const c = $("cbg"); c.width = src.w; c.height = src.h;
+    const g = c.getContext("2d"), im = g.createImageData(src.w, src.h);
+    for (let i = 0; i < src.w * src.h; i++) {
+      const o = i * 4, a = src.data[o + 3] / 255;
+      let r = src.data[o] * a + 255 * (1 - a), gg = src.data[o + 1] * a + 255 * (1 - a), b = src.data[o + 2] * a + 255 * (1 - a);
+      if (!an.fg[i]) { r = r * 0.35 + 216 * 0.65; gg = gg * 0.35 + 74 * 0.65; b = b * 0.35 + 138 * 0.65; }
+      im.data[o] = r; im.data[o + 1] = gg; im.data[o + 2] = b; im.data[o + 3] = 255;
+    }
+    g.putImageData(im, 0, 0);
+    g.fillStyle = "#2fa3d6"; g.strokeStyle = "#fff"; g.lineWidth = Math.max(1, src.w / 400);
+    bgSeeds.concat(fgSeeds).forEach((i) => { g.beginPath(); g.arc(i % src.w, (i / src.w) | 0, Math.max(4, src.w / 120), 0, 7); g.fill(); g.stroke(); });
+  }
+  const setMode = (m) => { clickMode = m; $("mBg").setAttribute("aria-pressed", String(m === "bg")); $("mFg").setAttribute("aria-pressed", String(m === "fg")); };
+  $("mBg").addEventListener("click", () => setMode("bg"));
+  $("mFg").addEventListener("click", () => setMode("fg"));
+  $("mReset").addEventListener("click", () => { bgSeeds = []; fgSeeds = []; if (src) analyze(); });
+  $("cbg").addEventListener("click", (e) => {
+    if (!src) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = Math.floor((e.clientX - r.left) / r.width * src.w), y = Math.floor((e.clientY - r.top) / r.height * src.h);
+    if (x < 0 || y < 0 || x >= src.w || y >= src.h) return;
+    (clickMode === "bg" ? bgSeeds : fgSeeds).push(y * src.w + x);
+    vecDirty = true;
+    analyze();
+  });
+  $("bgTol").addEventListener("change", () => { vecDirty = true; if (src) analyze(); });
+
+  // ---- sestava: náklon, rozestup, viditelnost ----
+  function place() {
+    if (!res) return;
+    const st = $("stack"), wpx = st.clientWidth || 600, pxmm = wpx / res.stats.wmm;
+    const spread = +$("spread").value / 100, tilt = $("tilt").checked;
+    const n = res.layers.length;
+    const step = 4 * pxmm + spread * wpx * 0.9 / (n - 1);
+    st.style.transform = tilt ? `rotateX(48deg) rotateZ(-24deg) scale(${(0.86 - 0.36 * spread).toFixed(3)}) translateZ(${(-(n - 1) * step / 2).toFixed(1)}px)` : "none";
+    res.layers.forEach((_, i) => { $("c" + (i + 1)).style.transform = `translateZ(${(tilt ? i * step : i * spread * 0.001).toFixed(1)}px)` + (!tilt && spread > 0 ? ` translate(${(i * spread * 6).toFixed(1)}%, ${(-i * spread * 6).toFixed(1)}%)` : ""); });
+    $("explode").textContent = +$("spread").value > 0 ? "Složit" : "Rozložit";
+  }
+  $("spread").addEventListener("input", place);
+  $("tilt").addEventListener("change", place);
+  $("explode").addEventListener("click", () => { $("spread").value = +$("spread").value > 0 ? 0 : 70; place(); });
+  window.addEventListener("resize", () => { if (view === "asm") place(); });
+
+  // ---- křivky (vektorizace) ----
+  let vecRes = null, vecDirty = true, vecURL = null, orig = null, vecTimer = 0;
+  function ensureVec() { if (vecDirty && orig) runVec(); }
+  function runVec() {
+    later(() => {
+      const same = src === orig;
+      vecRes = LaserLayers.vectorize(orig.data, orig.w, orig.h, {
+        colors: +$("vColors").value || 8, detail: +$("vDetail").value, blur: +$("vBlur").value, minArea: +$("vMin").value || 12,
+        removeBg: $("vBg").checked, bg: same ? { tol: +$("bgTol").value || 30, bgSeeds, fgSeeds } : { tol: +$("bgTol").value || 30 }, widthMm: +$("width").value || 300,
+      });
+      vecDirty = false;
+      if (vecURL) URL.revokeObjectURL(vecURL);
+      vecURL = URL.createObjectURL(new Blob([vecRes.svg], { type: "image/svg+xml" }));
+      $("vecimg").src = vecURL;
+      if (view === "vec") $("legend").innerHTML = legend("vec");
+    });
+  }
+  const vecChanged = () => { vecDirty = true; clearTimeout(vecTimer); vecTimer = setTimeout(() => { if (view === "vec") ensureVec(); }, 300); };
+  ["vColors", "vDetail", "vBlur", "vMin", "vBg"].forEach((id) => $(id).addEventListener("change", vecChanged));
+  ["vDetail", "vBlur"].forEach((id) => $(id).addEventListener("input", vecChanged));
+  $("vDl").addEventListener("click", () => vecRes && vecRes.svg && save(vecRes.svg, "_krivky.svg"));
+  $("vUse").addEventListener("click", () => {
+    if (!vecRes || !vecRes.svg) return;
+    const k = MAXPX / Math.max(vecRes.W, vecRes.H), w = Math.round(vecRes.W * k), h = Math.round(vecRes.H * k);
+    const url = URL.createObjectURL(new Blob([vecRes.svg], { type: "image/svg+xml" })), img = new Image();
+    img.onload = () => {
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      try { loadImage(c, origLabel + " (křivky)", true); $("vOrig").hidden = false; pendingMsg = "Vrstvy se teď počítají z křivek."; view = "asm"; }
+      catch (e) { $("msg").textContent = "Prohlížeč nedovolil převést křivky zpět na obrázek. Stáhni křivky SVG a nahraj je jako obrázek."; }
+    };
+    img.onerror = () => { $("msg").textContent = "Křivky se nepodařilo vykreslit."; };
+    img.src = url;
+  });
+  $("vOrig").addEventListener("click", () => { if (!orig) return; src = orig; bgSeeds = []; fgSeeds = []; $("fname").textContent = origLabel; $("vOrig").hidden = true; pendingMsg = "Vrstvy se zase počítají z originálu."; analyze(); });
+  let origLabel = "", pendingMsg = "";
+
+  // ---- stahování: v Claude přes potvrzení, jinde normální stažení ----
+  let dlp = null;
+  function downloads() { if (!dlp) dlp = window.claude && window.claude.use ? window.claude.use("downloads").catch(() => null) : Promise.resolve(null); return dlp; }
+  function base() { return ($("fname").dataset.base || "ukazka").replace(/[^\p{L}\p{N}_-]+/gu, "_").slice(0, 40); }
+  async function save(svgText, suffix) {
+    const name = base() + (suffix || "_vrstvy.svg");
+    const d = await downloads();
+    if (d) {
+      try { await d.save({ filename: name, data: svgText }); $("msg").textContent = "Uloženo: " + name; return; }
+      catch (e) {
+        if (e && e.code === "declined") { $("msg").textContent = "Stažení zrušeno."; return; }
+        if (e && e.code === "rate_limited") { $("msg").textContent = "Počkej na předchozí potvrzení a zkus to znovu."; return; }
+      }
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([svgText], { type: "image/svg+xml" }));
+    a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    $("msg").textContent = "Uloženo: " + name;
+  }
+  $("dlAll").onclick = () => res && save(res.all);
+
+  // ---- vstup ----
+  function loadImage(img, label, keepOrig) {
+    let w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+    const k = Math.min(1, MAXPX / Math.max(w, h));
+    w = Math.round(w * k); h = Math.round(h * k);
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const g = c.getContext("2d"); g.drawImage(img, 0, 0, w, h);
+    src = { w, h, data: g.getImageData(0, 0, w, h).data };
+    bgSeeds = []; fgSeeds = [];
+    $("fname").textContent = label;
+    if (!keepOrig) { orig = src; origLabel = label; vecDirty = true; $("vOrig").hidden = true; $("fname").dataset.base = label.replace(/\.[^.]+$/, ""); }
+    analyze();
+  }
+  function fromFile(file) {
+    if (!file || !file.type.startsWith("image/")) { $("msg").textContent = "Tohle není obrázek. Vyber PNG nebo JPG."; return; }
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => { loadImage(img, file.name); URL.revokeObjectURL(url); };
+    img.onerror = () => { $("msg").textContent = "Obrázek se nepodařilo načíst."; };
+    img.src = url;
+  }
+  $("file").addEventListener("change", (e) => fromFile(e.target.files[0]));
+  const drop = $("drop");
+  ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => fromFile(e.dataTransfer.files[0]));
+  document.addEventListener("paste", (e) => { const it = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/")); if (it) fromFile(it.getAsFile()); });
+
+  ["width", "frame", "gap", "struts", "strutWidth", "chamfer", "hole", "rim", "sepLine", "minFeature", "minPiece", "dropThin", "bridges", "engrave", "smooth"].forEach((id) => $(id).addEventListener("input", rebuild));
+  $("nColors").addEventListener("change", () => src && analyze());
+  $("nLayers").addEventListener("change", () => { if (an) { roles = defaultRoles(); drawColors(); rebuild(); } });
+
+  // ---- ukázka: vlastní kreslené autíčko ----
+  function sample() {
+    const c = document.createElement("canvas"); c.width = 900; c.height = 560;
+    const g = c.getContext("2d"); g.lineJoin = "round"; g.lineCap = "round";
+    const O = "#111014";
+    function shape(path, fill, lw) { g.beginPath(); path(); g.fillStyle = fill; g.fill(); g.lineWidth = lw; g.strokeStyle = O; g.stroke(); }
+    // karoserie
+    shape(() => { g.moveTo(70, 380); g.quadraticCurveTo(60, 300, 150, 285); g.lineTo(250, 270); g.quadraticCurveTo(310, 160, 430, 150);
+      g.lineTo(560, 150); g.quadraticCurveTo(650, 155, 700, 260); g.lineTo(790, 280); g.quadraticCurveTo(850, 295, 840, 380); g.closePath(); }, "#d8352b", 9);
+    // okna
+    shape(() => { g.moveTo(290, 268); g.quadraticCurveTo(330, 185, 430, 180); g.lineTo(470, 180); g.lineTo(470, 268); g.closePath(); }, "#bfe3f2", 7);
+    shape(() => { g.moveTo(505, 180); g.lineTo(555, 180); g.quadraticCurveTo(620, 185, 660, 268); g.lineTo(505, 268); g.closePath(); }, "#bfe3f2", 7);
+    // lesk na okně
+    shape(() => { g.moveTo(330, 255); g.quadraticCurveTo(350, 215, 390, 205); g.lineTo(380, 225); g.quadraticCurveTo(355, 235, 345, 255); g.closePath(); }, "#ffffff", 0.01);
+    // nárazník a světla
+    shape(() => { g.ellipse(800, 320, 26, 18, 0, 0, Math.PI * 2); }, "#ffd84a", 6);
+    shape(() => { g.ellipse(100, 330, 20, 16, 0, 0, Math.PI * 2); }, "#ffd84a", 6);
+    // dveře
+    g.beginPath(); g.moveTo(487, 280); g.lineTo(487, 370); g.lineWidth = 7; g.strokeStyle = O; g.stroke();
+    shape(() => { g.roundRect(420, 300, 40, 12, 6); }, "#ffffff", 6);
+    // kola
+    [[230, 395], [670, 395]].forEach(([x, y]) => {
+      shape(() => g.arc(x, y, 82, 0, Math.PI * 2), "#5b5d66", 9);
+      shape(() => g.arc(x, y, 42, 0, Math.PI * 2), "#ffffff", 7);
+      shape(() => g.arc(x, y, 12, 0, Math.PI * 2), "#5b5d66", 5);
+    });
+    loadImage(c, "Ukázka: kreslené autíčko");
+    $("fname").dataset.base = "ukazka_auto";
+  }
+  sample();
+})();
+</script>
