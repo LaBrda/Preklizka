@@ -14,7 +14,10 @@ from pydantic import BaseModel
 
 import vrstvy
 
-VERSION = os.environ.get("APP_VERSION", "dev")
+_vf = Path(__file__).resolve().parent.parent / "VERSION"
+VERSION = os.environ.get("APP_VERSION") or (_vf.read_text().strip() if _vf.exists() else "dev")
+if VERSION == "dev" and _vf.exists():
+    VERSION = _vf.read_text().strip()
 WATCHTOWER_URL = os.environ.get("WATCHTOWER_URL", "")          # např. http://watchtower:8080
 WATCHTOWER_TOKEN = os.environ.get("WATCHTOWER_TOKEN", "")
 UPDATE_PASSWORD = os.environ.get("UPDATE_PASSWORD", "")

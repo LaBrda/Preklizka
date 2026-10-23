@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY web ./web
 COPY tools ./tools
+COPY VERSION ./VERSION
 RUN python tools/build_web.py
 
 ARG APP_VERSION=dev

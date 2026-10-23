@@ -73,6 +73,8 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
 .check { display: flex; gap: 8px; align-items: center; font-size: .9rem; cursor: pointer; }
 .check input { accent-color: var(--accent); width: 16px; height: 16px; }
 .hint { font-size: .8rem; color: var(--muted); margin: 0; }
+.ver { font: 500 .9rem var(--mono); color: var(--muted); vertical-align: middle; letter-spacing: 0; }
+.srv .new { color: var(--accent); font-weight: 600; }
 .srv { display: flex; gap: 8px; align-items: center; font: 500 .8rem var(--mono); color: var(--muted); margin-left: auto; }
 
 .main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -127,7 +129,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
 
 <div class="wrap">
   <header>
-    <h1>Překližkové vrstvy</h1>
+    <h1>Překližkové vrstvy <span class="ver" id="ver">v__VERSION__</span></h1>
     <div class="srv" id="srv" hidden>
       <span id="srvInfo"></span>
       <button class="btn" id="updBtn" type="button">Aktualizovat</button>
@@ -304,6 +306,19 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   // ---- server (Docker na Proxmoxu): přesnější výpočet ve vyšším rozlišení; bez serveru se počítá v prohlížeči
   let server = null;
   const b64 = (u8) => { let s = ""; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+  const APP_VERSION = "__VERSION__";
+  const verNum = (v) => String(v || "").replace(/^v/, "").split(".").map((x) => parseInt(x) || 0);
+  const newer = (a, b) => { const x = verNum(a), y = verNum(b); for (let i = 0; i < Math.max(x.length, y.length); i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
+  async function latestVersion() {
+    try { const r = await fetch("https://raw.githubusercontent.com/LaBrda/Preklizka/main/VERSION?t=" + Date.now(), { cache: "no-store" }); return r.ok ? (await r.text()).trim() : null; }
+    catch (e) { return null; }
+  }
+  function showServer(latest) {
+    const cur = (server && server.version) || APP_VERSION;
+    $("ver").textContent = "v" + cur;
+    if (latest && newer(latest, cur)) { $("srvInfo").innerHTML = ""; const n = document.createElement("span"); n.className = "new"; n.textContent = "K dispozici v" + latest; $("srvInfo").appendChild(n); $("updBtn").textContent = "Aktualizovat na v" + latest; }
+    else { $("srvInfo").textContent = latest ? "nejnovější verze" : ""; $("updBtn").textContent = "Zkontrolovat aktualizace"; }
+  }
   (async () => {
     if (!/^https?:$/.test(location.protocol)) return;
     try {
@@ -311,25 +326,37 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       if (!r.ok) return;
       server = await r.json();
       $("srv").hidden = false;
-      $("srvInfo").textContent = "server " + (server.version || "?");
       $("updBtn").hidden = !server.update;
+      showServer(await latestVersion());
       if (an) rebuild();
     } catch (e) { server = null; }
   })();
   $("updBtn").addEventListener("click", async () => {
+    const latest = await latestVersion();
+    const before = server.version;
+    if (latest && !newer(latest, before)) { $("msg").textContent = "Máš nejnovější verzi v" + before + "."; showServer(latest); return; }
     let pw = "";
-    if (server && server.updateNeedsPassword) { pw = window.prompt ? (window.prompt("Heslo pro aktualizaci") || "") : ""; }
-    $("msg").textContent = "Stahuji novou verzi…";
+    if (server.updateNeedsPassword) { pw = window.prompt ? (window.prompt("Heslo pro aktualizaci") || "") : ""; }
+    $("updBtn").disabled = true;
+    $("msg").textContent = "Stahuji novou verzi" + (latest ? " v" + latest : "") + "… (trvá to zhruba minutu)";
     try {
       const r = await fetch("api/update", { method: "POST", headers: { "X-Update-Password": pw } });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) { $("msg").textContent = "Aktualizace se nepovedla: " + (j.detail || r.status); return; }
-      $("msg").textContent = "Aktualizace spuštěna. Pokud byla nová verze, appka se za chvíli restartuje. Pak obnov stránku.";
-      setTimeout(async () => {
-        try { const h = await (await fetch("api/health", { cache: "no-store" })).json(); $("srvInfo").textContent = "server " + h.version; $("msg").textContent = h.version !== server.version ? "Hotovo, běží nová verze " + h.version + ". Obnov stránku." : "Žádná novější verze není."; }
-        catch (e) { $("msg").textContent = "Appka se restartuje, za chvíli obnov stránku."; }
-      }, 20000);
-    } catch (e) { $("msg").textContent = "Aktualizace se nepovedla: " + e.message; }
+      if (!r.ok) { $("msg").textContent = "Aktualizace se nepovedla: " + (j.detail || r.status); $("updBtn").disabled = false; return; }
+    } catch (e) { /* appka se může restartovat ještě před odpovědí */ }
+    // čekat, až naběhne nová verze; pak stránku obnovit
+    const t0 = Date.now();
+    const tick = async () => {
+      const s = Math.round((Date.now() - t0) / 1000);
+      try {
+        const h = await (await fetch("api/health", { cache: "no-store" })).json();
+        if (h.version !== before) { $("msg").textContent = "Hotovo, běží v" + h.version + ". Obnovuji stránku…"; setTimeout(() => location.reload(), 1500); return; }
+      } catch (e) { $("msg").textContent = "Appka se restartuje… (" + s + " s)"; }
+      if (s > 180) { $("msg").textContent = "Nová verze zatím nenaběhla. Zkus to za chvíli znovu, nebo zkontroluj server (docker compose ps)."; $("updBtn").disabled = false; return; }
+      if (!/restartuje/.test($("msg").textContent)) $("msg").textContent = "Stahuji novou verzi… (" + s + " s)";
+      setTimeout(tick, 3000);
+    };
+    setTimeout(tick, 3000);
   });
   async function serverBuild(cmp) {
     const body = { W: an.W, H: an.H, cent: an.cent, roles, opt: opts(),
