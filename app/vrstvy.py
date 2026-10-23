@@ -48,6 +48,16 @@ def smooth(m, sigma):
     return f > 0.5
 
 
+def nearest(mask):
+    """Vzdálenost (float32) a souřadnice nejbližšího pixelu masky (int32) – úsporně přes OpenCV."""
+    src = (~mask).astype(np.uint8)
+    dist, lab = cv2.distanceTransformWithLabels(src, cv2.DIST_L2, 5, labelType=cv2.DIST_LABEL_PIXEL)
+    ys, xs = np.nonzero(src == 0)          # pořadí nulových pixelů = čísla štítků (od 1)
+    lut_y = np.concatenate([[0], ys]).astype(np.int32)
+    lut_x = np.concatenate([[0], xs]).astype(np.int32)
+    return dist, lut_y[lab], lut_x[lab]
+
+
 def drop_small(m, min_px):
     lab, n = ndi.label(m)
     if n == 0:
@@ -126,14 +136,15 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
     frame, gap = float(opt.get("frame", 10)), float(opt.get("gap", -3))
 
     # zvětšení: pracovní rozlišení kolem 3000 px
-    U = int(max(1, min(4, round(3000 / max(W0, H0)))))
+    # pracovní rozlišení: nejvýš ~4 Mpx (paměť pod ~700 MB), malé obrázky se zvětší
+    U = float(max(1.0, min(4.0, math.sqrt(4.0e6 / float(W0 * H0)))))
     lv = int(max(0, min(5, opt.get("smooth", 3))))
     SMOOTH["passes"] = int(2 + (1 + lv) * U)
     SMOOTH["eps"] = 0.3 + 0.12 * lv * U
     mm = mm0 / U
     px = lambda v: v / mm                            # mm -> pracovní pixely
     pad = max(0, int(round(px(frame + gap))))
-    bw, bh = (x1 - x0 + 1) * U, (y1 - y0 + 1) * U
+    bw, bh = int(round((x1 - x0 + 1) * U)), int(round((y1 - y0 + 1) * U))
     w, h = bw + 2 * pad, bh + 2 * pad
 
     # ---- hladká mapa barev: každá třída se zvětší, rozmaže a vyhraje nejsilnější
@@ -305,8 +316,7 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
                 break
             main_id = np.bincount(labn[ring & net].ravel()).argmax() if (ring & net).any() else np.bincount(labn.ravel())[1:].argmax() + 1
             main = labn == main_id
-            _, (iy, ix) = ndi.distance_transform_edt(~main, return_indices=True)
-            dist = ndi.distance_transform_edt(~main)
+            dist, iy, ix = nearest(main)
             st = np.zeros((h, w), np.uint8)
             added = 0
             for k in range(1, n + 1):
@@ -359,7 +369,7 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
         if c >= 0 and role(c) not in ("outline", "wood", "board"):
             painted |= Lu == c
     if painted.any():
-        _, (ny, nx) = ndi.distance_transform_edt(~painted, return_indices=True)
+        _, ny, nx = nearest(painted)
         colorIdx = Lu[ny, nx]
     else:
         colorIdx = Lu.copy()
@@ -448,7 +458,7 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
         "cutPx": cut_preview,
         "mm": float(pscale),
         "stats": {"wmm": float(wmm), "hmm": float(hmm), "silParts": int(sil_parts), "holes": int(holes_n), "pieces": int(n_pieces),
-                  "layers": int(NL), "bridges": int(n_bridges), "frameJoined": bool(joined), "engine": "server", "upscale": int(U)},
+                  "layers": int(NL), "bridges": int(n_bridges), "frameJoined": bool(joined), "engine": "server", "upscale": round(float(U), 1)},
     }
 
 

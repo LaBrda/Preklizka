@@ -358,10 +358,20 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     };
     setTimeout(tick, 3000);
   });
-  async function serverBuild(cmp) {
-    const body = { W: an.W, H: an.H, cent: an.cent, roles, opt: opts(),
+  // každý výpočet má pořadové číslo; starší (zastaralé) výsledky se zahodí a jejich požadavky zruší
+  const CLIENT = Math.random().toString(36).slice(2);
+  let buildSeq = 0, buildCtrl = null;
+  class Stale extends Error {}
+  function cancelBuilds() { buildSeq++; if (buildCtrl) { try { buildCtrl.abort(); } catch (e) {} buildCtrl = null; } }
+  async function serverBuild(cmp, seq) {
+    const body = { W: an.W, H: an.H, cent: an.cent, roles, opt: opts(), client: CLIENT, seq,
       lab: b64(new Uint8Array(cmp.lab.buffer)), line: b64(cmp.line), hole: b64(cmp.hole) };
-    const r = await fetch("api/build", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (buildCtrl) { try { buildCtrl.abort(); } catch (e) {} }
+    const ctrl = new AbortController(); buildCtrl = ctrl;
+    let r;
+    try { r = await fetch("api/build", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctrl.signal }); }
+    catch (e) { if (e.name === "AbortError" || seq !== buildSeq) throw new Stale(); throw e; }
+    if (r.status === 409 || seq !== buildSeq) throw new Stale();
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.detail || ("server " + r.status)); }
     const j = await r.json();
     const layers = await Promise.all(j.layers.map(async (pngB64) => {
@@ -373,14 +383,15 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   }
 
   function analyze() {
-    later(() => {
+    cancelBuilds(); clearTimeout(timer); buildAgain = false;
+    later(async () => {
       an = LaserLayers.analyze(src.data, src.w, src.h, Math.max(2, Math.min(16, parseInt($("nColors").value) || 12)), { tol: +$("bgTol").value || 30, bgSeeds, fgSeeds });
       drawBg();
       roles = defaultRoles();
       cellColor = new Map(); holeEdit = new Int8Array(an.W * an.H); outlineKey = ""; erase = new Uint8Array(an.W * an.H); colorClicks = []; eraseVer++;
       computeLA();
       drawColors();
-      buildNow();
+      await buildNow();
     });
   }
   // natírané barvy rozdělit do vrstev 2..N-1: větší plochy níž
@@ -516,11 +527,17 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     if (roles.every((r) => r === "outline")) { $("msg").textContent = "Aspoň jedna barva musí být natřená vrstva nebo dřevo."; return; }
     computeLA();
     const cmp = LaserLayers.composeLines(an, la, cellColor, holeEdit);
-    res = null;
+    const seq = ++buildSeq;
+    let out = null;
     if (server) {
-      try { res = await serverBuild(cmp); }
-      catch (e) { pendingMsg = "Server nepočítal (" + e.message + "), použil se výpočet v prohlížeči."; }
+      try { out = await serverBuild(cmp, seq); }
+      catch (e) {
+        if (e instanceof Stale) return;   // mezitím přišla novější změna nebo nový obrázek
+        pendingMsg = "Server nepočítal (" + e.message + "), použil se výpočet v prohlížeči.";
+      }
     }
+    if (seq !== buildSeq) return;
+    res = out;
     if (!res) res = LaserLayers.build(Object.assign({}, an, { lab: cmp.lab }), roles, Object.assign(opts(), { lineData: { line: cmp.line, hole: cmp.hole } }));
     layersDirty = false;
     const s = res.stats, warn = s.silParts > 1;
