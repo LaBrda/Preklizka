@@ -177,6 +177,8 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
         if c == LINE_CLS or c < 0:
             return NL if c == LINE_CLS else 0
         r = role(c)
+        if r == "board":
+            return 1
         if r in ("outline", "wood"):
             return NL
         try:
@@ -244,6 +246,16 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
             sep |= dilate(outer, 2 * half)
         sep = smooth(sep, max(1.0, px(0.25))) & sil
         big &= ~sep
+
+    # ---- barvy v roli Černá (deska): díra ve všech vrstvách až na desku
+    board = np.zeros_like(sil)
+    for c in classes:
+        if c >= 0 and role(c) == "board":
+            board |= Lu == c
+    if board.any():
+        big |= opening(board & sil & ~sep & ~rim, r)
+    # drobné díry (tečky mezi tahy) zrušit, zůstanou dřevem
+    big = drop_small(big, float(opt.get("minHole", 3)) * 2 / (mm * mm))
 
     # ---- horní vrstva (síť linek)
     woodU = np.zeros_like(sil)
@@ -344,7 +356,7 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
     # ---- barvy natřených ploch a jejich linky
     painted = np.zeros((h, w), bool)
     for c in classes:
-        if c >= 0 and role(c) not in ("outline", "wood"):
+        if c >= 0 and role(c) not in ("outline", "wood", "board"):
             painted |= Lu == c
     if painted.any():
         _, (ny, nx) = ndi.distance_transform_edt(~painted, return_indices=True)

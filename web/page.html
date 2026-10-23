@@ -162,7 +162,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     <div class="sec">
       <h2>Barvy</h2>
       <div class="colors" id="colors"></div>
-      <p class="hint">Kliknutím na čtvereček barvu změníš. U každé barvy vyber, kam patří. Obrys je černá deska a dřevěné linky nahoře. Čísla jsou natřené vrstvy, vyšší číslo leží výš (bílou natři bíle, nebo nech holé dřevo). Dřevo znamená, že plocha bude vystouplá jako součást horní vrstvy.</p>
+      <p class="hint">Kliknutím na čtvereček barvu změníš. U každé barvy vyber, kam patří. Černá: díra ve všech vrstvách až na černou desku. Obrys je černá deska a dřevěné linky nahoře. Čísla jsou natřené vrstvy, vyšší číslo leží výš (bílou natři bíle, nebo nech holé dřevo). Dřevo znamená, že plocha bude vystouplá jako součást horní vrstvy.</p>
       <div class="fields">
         <div class="f"><label for="nLayers">Počet vrstev</label><div class="in"><select id="nLayers"><option value="3" selected>3</option><option value="4">4</option><option value="5">5</option></select></div></div>
         <div class="f"><label for="nColors">Počet barev</label><div class="in"><input id="nColors" type="number" min="2" max="16" step="1" value="12"></div></div>
@@ -519,12 +519,12 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       sw.appendChild(ci);
       const info = document.createElement("div"); info.className = "cinfo"; info.textContent = `${hex(c)} ${Math.round(100 * an.areas[k] / total)}\u00a0%`;
       const seg = document.createElement("div"); seg.className = "seg"; seg.setAttribute("role", "group"); seg.setAttribute("aria-label", "Role barvy " + hex(c));
-      const opts_ = ["outline"]; for (let k = 2; k < NL(); k++) opts_.push(k); opts_.push("wood");
+      const opts_ = ["board", "outline"]; for (let k = 2; k < NL(); k++) opts_.push(k); opts_.push("wood");
       if (typeof roles[k] === "number") roles[k] = Math.min(roles[k], NL() - 1);
       opts_.forEach((r) => {
         const b = document.createElement("button"); b.type = "button";
-        b.textContent = r === "outline" ? "Obrys" : r === "wood" ? "Dřevo" : String(r);
-        b.title = r === "outline" ? "černá deska / dřevěné linky" : r === "wood" ? "holé dřevo v horní vrstvě" : "natřít na vrstvě " + r;
+        b.textContent = r === "board" ? "Černá" : r === "outline" ? "Obrys" : r === "wood" ? "Dřevo" : String(r);
+        b.title = r === "board" ? "díra ve všech vrstvách až na černou desku" : r === "outline" ? "dřevěné linky (kresba)" : r === "wood" ? "holé dřevo v horní vrstvě" : "natřít na vrstvě " + r;
         b.setAttribute("aria-pressed", roles[k] === r ? "true" : "false");
         b.onclick = () => { roles[k] = r; seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false")); rebuild(); };
         seg.appendChild(b);

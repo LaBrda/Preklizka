@@ -476,7 +476,7 @@
         const op = open(m0, W, H, Math.max(3, Math.round(Math.max(W, H) / 200)));
         let nc = 0;
         for (let i = 0; i < op.length; i++) nc += op[i];
-        if (nc / n0 > 0.5) roles[0] = 2;
+        if (nc / n0 > 0.5) roles[0] = "board";   // velké černé plochy: díra až na černou desku
       }
     }
     const whiteish = cent.map((c, k) => roles[k] === "wood");
@@ -531,7 +531,7 @@
     if (EX) sil = or(sil, LD.line);
     // počet vrstev a úroveň každé barvy: obrys a dřevo = horní vrstva, nátěr = vrstva 2..NL-1
     const NL = Math.max(3, Math.min(5, opt.layers || 3));
-    const lvlOf = roles.map((ro) => (ro === "outline" || ro === "wood" ? NL : Math.max(2, Math.min(NL - 1, ro === "paint" ? 2 : +ro))));
+    const lvlOf = roles.map((ro) => (ro === "board" ? 1 : ro === "outline" || ro === "wood" ? NL : Math.max(2, Math.min(NL - 1, ro === "paint" ? 2 : +ro))));
     const lev = new Int8Array(N);
     for (let i = 0; i < N; i++) lev[i] = L[i] >= 0 ? lvlOf[L[i]] : 0;
     const levAtLeast = (k) => { const m = new Uint8Array(N); for (let i = 0; i < N; i++) m[i] = lev[i] >= k ? 1 : 0; return m; };
@@ -583,6 +583,10 @@
       }
       sep = or(sep, and(smooth(dilate(b, w, h, half), w, h, Math.max(1, px(0.35))), sil));   // dělicí linka hladce, ne po pixelech
       big = open(andNot(big, sep), w, h, r);
+    }
+    { // barvy v roli Černá (deska): díra až na desku, kromě dělicích linek a okraje
+      const bd = isRole("board");
+      if (any(bd)) big = or(big, open(andNot(andNot(and(smooth(bd, w, h, sig), sil), sep), rim), w, h, r));
     }
     if (!EX) { const C = label(big, w, h), lim = (opt.minHole == null ? 2 + (opt.smooth == null ? 3 : opt.smooth) : opt.minHole) * 2 / (mm * mm);
       for (let i = 0; i < N; i++) if (C.lab[i] && C.sizes[C.lab[i]] < lim) big[i] = 0; }
