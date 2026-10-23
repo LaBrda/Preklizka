@@ -72,6 +72,10 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
 .f .u { font: .75rem var(--mono); color: var(--muted); padding-right: 8px; }
 .check { display: flex; gap: 8px; align-items: center; font-size: .9rem; cursor: pointer; }
 .check input { accent-color: var(--accent); width: 16px; height: 16px; }
+.aigrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.aigrid .btn { padding: 7px 8px; font-size: .85rem; }
+.aidev { font: 500 .72rem var(--mono); color: var(--muted); text-transform: none; letter-spacing: 0; }
+.sec h3 { font: 600 .85rem var(--body); margin: 4px 0 0; }
 .hint { font-size: .8rem; color: var(--muted); margin: 0; }
 .ver { font: 500 .9rem var(--mono); color: var(--muted); vertical-align: middle; letter-spacing: 0; }
 .srv .new { color: var(--accent); font-weight: 600; }
@@ -146,6 +150,28 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       </label>
       <input type="file" id="file" accept="image/*" hidden>
       <div class="file-name" id="fname">Ukázka: kreslené autíčko</div>
+    </div>
+
+    <div class="sec" id="aiSec" hidden>
+      <h2>AI pomocník <span class="aidev" id="aiDev"></span></h2>
+      <div class="aigrid">
+        <button class="btn aib" id="aiBgA" type="button">Pozadí pryč (kreslený)</button>
+        <button class="btn aib" id="aiBgP" type="button">Pozadí pryč (fotka)</button>
+        <button class="btn aib" id="aiSel" type="button">Vybrat kliknutím</button>
+        <button class="btn aib" id="aiUp" type="button">Zvětšit a vyčistit</button>
+      </div>
+      <h3>Fotka → kreslený obrázek</h3>
+      <div class="fields">
+        <div class="f"><label for="aiStyle">Styl</label><div class="in"><select id="aiStyle"><option value="portret" selected>portrét</option><option value="krajina">scéna, celá postava</option><option value="none">jen zjednodušit</option></select></div></div>
+        <div class="f"><label for="aiColors">Barvy</label><div class="in"><input id="aiColors" type="number" min="2" max="24" step="1" value="8"></div></div>
+        <div class="f"><label for="aiDetail">Detail</label><div class="in"><input id="aiDetail" type="range" min="1" max="10" value="6" style="accent-color:var(--accent)"></div></div>
+        <label class="check" style="align-self:end"><input type="checkbox" id="aiLines" checked> Obrysy</label>
+      </div>
+      <div class="dl">
+        <button class="btn primary aib" id="aiCart" type="button">Udělat kreslený obrázek</button>
+        <button class="btn" id="aiUndo" type="button" hidden>Vrátit originál</button>
+      </div>
+      <p class="hint" id="aiHint">U fotky nejdřív odstraň pozadí, pak udělej kreslený obrázek. Vybrat kliknutím: ohraničí postavu tažením, klikem přidáš část, Shift + klikem ubereš. Zvětšení pomůže malým a zubatým obrázkům.</p>
     </div>
 
     <div class="sec">
@@ -331,6 +357,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       server = await r.json();
       $("srv").hidden = false;
       $("updBtn").hidden = !server.update;
+      if (server.ai && server.ai.available) { $("aiSec").hidden = false; $("aiDev").textContent = "počítá " + server.ai.device; }
       showServer(await latestVersion());
       if (an) rebuild();
     } catch (e) { server = null; }
@@ -649,6 +676,8 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     g.putImageData(im, 0, 0);
     g.fillStyle = "#2fa3d6"; g.strokeStyle = "#fff"; g.lineWidth = Math.max(1, src.w / 400);
     bgSeeds.concat(fgSeeds).forEach((i) => { g.beginPath(); g.arc(i % src.w, (i / src.w) | 0, Math.max(4, src.w / 120), 0, 7); g.fill(); g.stroke(); });
+    if (aiBase && aiBox) { const k = src.w / aiBase.w; g.setLineDash([8, 6]); g.lineWidth = Math.max(2, src.w / 300); g.strokeStyle = "#1fae4b"; g.strokeRect(aiBox[0] * k, aiBox[1] * k, (aiBox[2] - aiBox[0]) * k, (aiBox[3] - aiBox[1]) * k); g.setLineDash([]); }
+    if (aiBase) aiPts.forEach(([x, y, pos]) => { const k = src.w / aiBase.w; g.fillStyle = pos ? "#1fae4b" : "#d8352b"; g.beginPath(); g.arc(x * k, y * k, Math.max(5, src.w / 100), 0, 7); g.fill(); g.stroke(); });
   }
   const setMode = (m) => { clickMode = m; $("mBg").setAttribute("aria-pressed", String(m === "bg")); $("mFg").setAttribute("aria-pressed", String(m === "fg")); };
   $("mBg").addEventListener("click", () => setMode("bg"));
@@ -659,6 +688,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     const r = e.currentTarget.getBoundingClientRect();
     const x = Math.floor((e.clientX - r.left) / r.width * src.w), y = Math.floor((e.clientY - r.top) / r.height * src.h);
     if (x < 0 || y < 0 || x >= src.w || y >= src.h) return;
+    if (aiSelMode) return;
     (clickMode === "bg" ? bgSeeds : fgSeeds).push(y * src.w + x);
     vecDirty = true;
     analyze();
@@ -725,6 +755,10 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   function base() { return ($("fname").dataset.base || "ukazka").replace(/[^\p{L}\p{N}_-]+/gu, "_").slice(0, 40); }
   async function save(svgText, suffix) {
     const name = base() + (suffix || "_vrstvy.svg");
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.save_file) {   // vlastní okno: dialog Uložit jako
+      try { const p = await window.pywebview.api.save_file(name, svgText); $("msg").textContent = p ? "Uloženo: " + p : "Ukládání zrušeno."; } catch (e) { $("msg").textContent = "Uložení selhalo: " + e; }
+      return;
+    }
     const d = await downloads();
     if (d) {
       try { await d.save({ filename: name, data: svgText }); $("msg").textContent = "Uloženo: " + name; return; }
@@ -741,6 +775,90 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   }
   $("dlAll").onclick = () => res && save(res.all);
 
+  // ---- AI pomocník (jen v appce se serverem: exe nebo Docker) ----
+  let aiBase = null, aiPts = [], aiBox = null, aiSelMode = false, aiBusy = false, aiDrag = null;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  function srcPNG(s) {
+    const c = document.createElement("canvas"); c.width = s.w; c.height = s.h;
+    c.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(s.data), s.w, s.h), 0, 0);
+    return c.toDataURL("image/png");
+  }
+  function pngImage(b64png) {
+    return new Promise((ok, bad) => { const im = new Image(); im.onload = () => ok(im); im.onerror = () => bad(new Error("výsledek nejde načíst")); im.src = "data:image/png;base64," + b64png; });
+  }
+  async function aiCall(op, params, from, what) {
+    const post = (u, b) => fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
+    for (;;) {    // modely se stahují jen poprvé
+      const r = await post("api/ai/prepare", { op, params });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.detail || "server " + r.status);
+      if (j.ready) break;
+      if (j.error) throw new Error("model se nepodařilo stáhnout (" + j.error + ")");
+      $("msg").textContent = `Stahuji AI model, jen poprvé (${j.mb} MB): ${j.pct} %`;
+      await sleep(800);
+    }
+    $("msg").textContent = what + "…";
+    const r = await post("api/ai/run", { op, params, img: srcPNG(from) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.detail || "server " + r.status);
+    return pngImage(j.img);
+  }
+  async function aiDo(op, params, what, label, done) {
+    if (!src || aiBusy) return;
+    aiBusy = true; document.querySelectorAll(".aib").forEach((b) => (b.disabled = true)); busy(true);
+    const t0 = Date.now();
+    try {
+      const base = op === "select" ? aiBase : src;
+      const im = await aiCall(op, params, base, what);
+      const keepBase = op === "select";
+      aiKeep = keepBase;
+      loadImage(im, origLabel + " (" + label + ")", true);
+      $("aiUndo").hidden = false; $("vOrig").hidden = false;
+      pendingMsg = done + " (" + ((Date.now() - t0) / 1000).toFixed(1) + " s)";
+    } catch (e) { console.error(e); $("msg").textContent = "AI: " + e.message; busy(false); }
+    aiBusy = false; document.querySelectorAll(".aib").forEach((b) => (b.disabled = false));
+  }
+  let aiKeep = false;
+  $("aiBgA").addEventListener("click", () => aiDo("bg", { kind: "anime" }, "Odstraňuji pozadí", "bez pozadí", "Pozadí odstraněno."));
+  $("aiBgP").addEventListener("click", () => aiDo("bg", { kind: "photo" }, "Odstraňuji pozadí", "bez pozadí", "Pozadí odstraněno."));
+  $("aiUp").addEventListener("click", () => aiDo("upscale", { quality: "auto" }, "Zvětšuji a čistím obrázek", "zvětšeno", "Obrázek zvětšen 4× a vyčištěn."));
+  $("aiCart").addEventListener("click", () => aiDo("cartoon", { style: $("aiStyle").value, colors: +$("aiColors").value || 8, detail: +$("aiDetail").value, lines: $("aiLines").checked },
+    "Kreslím obrázek", "kreslený", "Hotovo. Barvy a počet vrstev nastavíš níž, obrysy se staly linkami."));
+  $("aiUndo").addEventListener("click", () => { aiBase = null; aiPts = []; aiBox = null; setAiSel(false); $("vOrig").click(); $("aiUndo").hidden = true; });
+  function setAiSel(on) {
+    aiSelMode = on; $("aiSel").setAttribute("aria-pressed", String(on));
+    $("aiSel").textContent = on ? "Hotovo s výběrem" : "Vybrat kliknutím";
+    $("aiSel").classList.toggle("primary", on);
+    if (on) { if (!aiBase) { aiBase = src; aiPts = []; aiBox = null; } show("bg"); $("msg").textContent = "Táhnutím myší ohraničí postavu. Pak klikem přidáš chybějící část, Shift + klikem ubereš, co tam nepatří."; }
+  }
+  $("aiSel").addEventListener("click", () => setAiSel(!aiSelMode));
+  function aiSelRun() { aiDo("select", { points: aiPts, box: aiBox }, "Vybírám", "výběr", "Vybráno. Klikem přidáš část, Shift + klikem ubereš, nový obdélník začne znovu."); }
+  function aiClick(x, y, neg) {
+    if (!aiBase) { aiBase = src; aiPts = []; aiBox = null; }
+    const k = aiBase.w / src.w;
+    aiPts.push([Math.round(x * k), Math.round(y * k), neg ? 0 : 1]);
+    aiSelRun();
+  }
+  const cbgPos = (e) => { const r = $("cbg").getBoundingClientRect(); return [(e.clientX - r.left) / r.width * src.w, (e.clientY - r.top) / r.height * src.h]; };
+  $("cbg").addEventListener("pointerdown", (e) => { if (!aiSelMode || !src || aiBusy) return; aiDrag = { a: cbgPos(e), b: cbgPos(e), shift: e.shiftKey, snap: $("cbg").getContext("2d").getImageData(0, 0, src.w, src.h) }; $("cbg").setPointerCapture(e.pointerId); });
+  $("cbg").addEventListener("pointermove", (e) => {
+    if (!aiDrag) return; aiDrag.b = cbgPos(e);
+    const g = $("cbg").getContext("2d"), [x0, y0] = aiDrag.a, [x1, y1] = aiDrag.b;
+    g.putImageData(aiDrag.snap, 0, 0);
+    g.setLineDash([8, 6]); g.lineWidth = Math.max(2, src.w / 300); g.strokeStyle = "#1fae4b"; g.strokeRect(x0, y0, x1 - x0, y1 - y0); g.setLineDash([]);
+  });
+  $("cbg").addEventListener("pointerup", (e) => {
+    if (!aiDrag) return;
+    const d = aiDrag; aiDrag = null;
+    const [x0, y0] = d.a, [x1, y1] = d.b;
+    if (Math.hypot(x1 - x0, y1 - y0) > Math.max(10, src.w / 60)) {
+      if (!aiBase) aiBase = src;
+      const k = aiBase.w / src.w;
+      aiBox = [x0, y0, x1, y1].map((v) => Math.round(Math.max(0, v) * k)); aiPts = [];
+      aiSelRun();
+    } else aiClick(Math.floor(x0), Math.floor(y0), d.shift || e.shiftKey);
+  });
+
   // ---- vstup ----
   function loadImage(img, label, keepOrig) {
     let w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
@@ -750,6 +868,8 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     const g = c.getContext("2d"); g.drawImage(img, 0, 0, w, h);
     src = { w, h, data: g.getImageData(0, 0, w, h).data };
     bgSeeds = []; fgSeeds = [];
+    if (!aiKeep) { aiBase = null; aiPts = []; aiBox = null; if (aiSelMode) setAiSel(false); }
+    aiKeep = false;
     $("fname").textContent = label;
     if (!keepOrig) { orig = src; origLabel = label; vecDirty = true; $("vOrig").hidden = true; $("fname").dataset.base = label.replace(/\.[^.]+$/, ""); }
     analyze();

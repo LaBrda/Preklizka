@@ -7,10 +7,19 @@ server ve vyšším rozlišení (hladké řezy). Bez serveru se počítá přím
 ## Windows: Preklizka.exe (bez instalace)
 
 1. Na stránce **Releases** repozitáře stáhni `Preklizka.exe` z nejnovější verze.
-2. Spusť ho. Otevře se okno s informací a appka v prohlížeči (`http://127.0.0.1:8765`).
+2. Spusť ho. Appka se otevře ve vlastním okně (Edge WebView2, ve Windows 10/11 už je).
    Windows může poprvé ukázat „Systém Windows ochránil počítač“ → *Další informace* → *Přesto spustit*.
+   Kdyby okno nešlo otevřít, appka se otevře v prohlížeči (vynutit: `Preklizka.exe --prohlizec`).
 3. Aktualizace: v appce tlačítko **Aktualizovat**. Exe stáhne novou verzi, vymění se a restartuje.
-4. Ukončení: zavři černé okno.
+4. Ukončení: zavři okno.
+
+## AI pomocník
+
+- **Pozadí pryč** (kreslený obrázek / fotka), **Vybrat kliknutím** (ohraničit postavu tažením, klik přidá, Shift+klik ubere),
+  **Zvětšit a vyčistit** (4×, pro malé a zubaté obrázky), **Fotka → kreslený obrázek** (styl portrét / scéna / jen zjednodušit).
+- Modely (ONNX, release `modely`) se stáhnou při prvním použití: u exe do složky `Preklizka_modely` vedle exe, v Dockeru do svazku `modely`.
+- Exe počítá na grafické kartě přes DirectML (NVIDIA, AMD, Intel), jinak na procesoru. Funguje i na notebooku bez RTX, jen pomaleji.
+- Modely: Real-ESRGAN (BSD-3), AnimeGANv2 (bryandlee/animegan2-pytorch), IS-Net a Segment Anything přes rembg. Převod: `tools/export_models.py`.
 
 ## Instalace na Proxmox (Debian LXC s Dockerem)
 
@@ -44,7 +53,8 @@ server ve vyšším rozlišení (hladké řezy). Bez serveru se počítá přím
 ## Zátěž serveru
 
 V klidu ~60 MB RAM a téměř nulový procesor. Při výpočtu 1–2 jádra na několik sekund a až ~1 GB RAM.
-Strop je nastavený v `docker-compose.yml` (2 jádra, 1,5 GB). Najednou se počítá jen jeden obrázek.
+Strop je nastavený v `docker-compose.yml` (2 jádra, 2,5 GB kvůli AI). Najednou se počítá jen jeden obrázek.
+AI funkce na serveru běží na procesoru (pozadí ~5 s, zvětšení ~5–20 s), každá v samostatném procesu, takže paměť se po ní vrátí.
 
 ## Vývoj
 

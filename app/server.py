@@ -44,6 +44,25 @@ def _get_pool():
     return _pool
 
 
+# AI: v exe jeden trvalý proces (modely zůstanou načtené), na serveru nový proces pro každý úkol (paměť).
+_ai_pool = None
+_ai_lock = threading.Lock()
+
+
+def _get_ai_pool():
+    global _ai_pool
+    if _ai_pool is None:
+        _ai_pool = cf.ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context("spawn"),
+                                          max_tasks_per_child=None if DESKTOP else 1)
+    return _ai_pool
+
+
+def _run_ai(op, png, params, models):
+    os.environ["PREKLIZKA_MODELS"] = models
+    import ai as a
+    return a.run(op, png, params)
+
+
 def _run_build(lab, cent, roles, opt, line, hole):
     import vrstvy as v
     return v.build(lab, cent, roles, opt, line, hole)
@@ -66,6 +85,58 @@ class BuildIn(BaseModel):
     hole: str
 
 
+class AiIn(BaseModel):
+    op: str
+    params: dict = {}
+    img: str = ""
+
+
+_ai_dev = None
+
+
+def ai_dev():
+    global _ai_dev
+    if _ai_dev is None:
+        import ai
+        _ai_dev = ai.device_info()
+    return _ai_dev
+
+
+@app.post("/api/ai/prepare")
+def ai_prepare(inp: AiIn):
+    import ai
+    try:
+        return ai.prepare(ai.needed(inp.op, inp.params, ai_dev()["gpu"]))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/ai/run")
+def ai_run(inp: AiIn):
+    global _ai_pool
+    import ai
+    if not ai_dev()["available"]:
+        raise HTTPException(501, "AI tu není k dispozici.")
+    st = ai.prepare(ai.needed(inp.op, inp.params, ai_dev()["gpu"]))
+    if not st["ready"]:
+        raise HTTPException(409, "Model se ještě stahuje.")
+    try:
+        png = base64.b64decode(inp.img.split(",")[-1])
+    except Exception:
+        raise HTTPException(400, "Poškozený obrázek.")
+    with _ai_lock:
+        try:
+            out = _get_ai_pool().submit(_run_ai, inp.op, png, inp.params, str(ai.models_dir())).result(timeout=600)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        except cf.process.BrokenProcessPool:
+            _ai_pool = None
+            raise HTTPException(503, "AI výpočet spadl (nejspíš došla paměť). Zkus menší obrázek.")
+        except Exception as e:
+            raise HTTPException(500, f"AI výpočet selhal: {e}")
+    return {"img": base64.b64encode(out).decode()}
+
+
 @app.get("/")
 def index():
     return FileResponse(WEB / "index.html", headers={"Cache-Control": "no-cache"})
@@ -74,7 +145,8 @@ def index():
 @app.get("/api/health")
 def health():
     return {"ok": True, "version": VERSION, "update": DESKTOP or bool(WATCHTOWER_URL and WATCHTOWER_TOKEN),
-            "updateNeedsPassword": bool(UPDATE_PASSWORD) and not DESKTOP, "mode": "exe" if DESKTOP else "server"}
+            "updateNeedsPassword": bool(UPDATE_PASSWORD) and not DESKTOP, "mode": "exe" if DESKTOP else "server",
+            "ai": ai_dev(), "window": os.environ.get("PREKLIZKA_WINDOW") == "1"}
 
 
 @app.post("/api/build")

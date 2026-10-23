@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .env
 web/index.html
+Preklizka_modely/
+selftest.log
+Preklizka.log
