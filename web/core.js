@@ -211,6 +211,13 @@
     return out;
   }
   const lum = (c) => 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+  function toLab(c) {   // sRGB -> CIE Lab (D65)
+    const f = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    const r = f(c[0]), g = f(c[1]), b = f(c[2]);
+    const X = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047, Y = 0.2126 * r + 0.7152 * g + 0.0722 * b, Z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883;
+    const t = (v) => (v > 0.008856 ? Math.cbrt(v) : 7.787 * v + 16 / 116);
+    return [116 * t(Y) - 16, 500 * (t(X) - t(Y)), 200 * (t(Y) - t(Z))];
+  }
 
   // Pozadí: průhlednost, nebo (u JPG) bílé/jednolité pozadí zaplavené od okraje
   // Pozadí: průhlednost, nebo barva rohů zaplavená od okraje. bg.tol = citlivost,
@@ -278,6 +285,35 @@
       floodOutside((i) => transparentPx(i) || near(i, ref), seeds);
       // tenký rámeček obrázku u okraje (jiná barva než pozadí) taky patří k pozadí
       for (const i of bandPx) back[i] = 1;
+      // nakreslený rámeček stránky (omalovánka): rovné čáry po všech čtyřech stranách postavy -> pozadí, pak znovu zaplavit
+      let x0 = W, x1 = -1, y0 = H, y1 = -1;
+      const C0 = label(not(back), W, H);   // obdélník největšího kusu (číslo stránky pod rámečkem nepočítat)
+      let q0 = 0; for (let q = 1; q <= C0.n; q++) if (!q0 || C0.sizes[q] > C0.sizes[q0]) q0 = q;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (q0 && C0.lab[y * W + x] === q0) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      if (x1 > x0 + 20 && y1 > y0 + 20) {
+        const bw = x1 - x0 + 1, bh = y1 - y0 + 1, t = Math.max(3, Math.round(0.03 * Math.min(bw, bh)));
+        const rowN = (y) => { let c = 0; for (let x = x0; x <= x1; x++) c += back[y * W + x] ? 0 : 1; return c; };
+        const colN = (x) => { let c = 0; for (let y = y0; y <= y1; y++) c += back[y * W + x] ? 0 : 1; return c; };
+        const rows = [], cols = [];
+        for (let y = y0; y < y0 + t; y++) if (rowN(y) > 0.6 * bw) rows.push(y);
+        for (let y = y1; y > y1 - t; y--) if (rowN(y) > 0.6 * bw) rows.push(y);
+        for (let x = x0; x < x0 + t; x++) if (colN(x) > 0.6 * bh) cols.push(x);
+        for (let x = x1; x > x1 - t; x--) if (colN(x) > 0.6 * bh) cols.push(x);
+        const has = (arr, lo, hi) => arr.some((v) => v >= lo && v <= hi);
+        if (has(rows, y0, y0 + t) && has(rows, y1 - t, y1) && has(cols, x0, x0 + t) && has(cols, x1 - t, x1)) {
+          const frame = new Uint8Array(N);
+          for (const y of rows) for (let x = x0; x <= x1; x++) for (let d = -1; d <= 1; d++) { const yy = y + d; if (yy >= 0 && yy < H) frame[yy * W + x] = 1; }
+          for (const x of cols) for (let y = y0; y <= y1; y++) for (let d = -1; d <= 1; d++) { const xx = x + d; if (xx >= 0 && xx < W) frame[y * W + xx] = 1; }
+          back.fill(0);
+          floodOutside((i) => transparentPx(i) || near(i, ref) || frame[i], bandPx.filter((i) => near(i, ref) || frame[i]));
+          for (let i = 0; i < N; i++) if (frame[i]) back[i] = 1;
+          for (const i of bandPx) back[i] = 1;
+          // zbytky rámečku (zaoblené rohy) a jiné drobky mimo hlavní kresbu pryč
+          const fgm = not(back), C = label(fgm, W, H);
+          let big = 0; for (let q = 1; q <= C.n; q++) if (C.sizes[q] > big) big = C.sizes[q];
+          for (let i = 0; i < N; i++) if (C.lab[i] && C.sizes[C.lab[i]] < big * 0.02) back[i] = 1;
+        }
+      }
     }
     // kliknutá místa pozadí: zaplavit podobnou barvu od kliku
     for (const s0 of bg.bgSeeds || []) { const c = col(s0), m = new Uint8Array(N); flood([s0], (i) => !transparentPx(i) && near(i, c), m); for (let i = 0; i < N; i++) if (m[i]) back[i] = 1; }
@@ -488,13 +524,16 @@
     const area = cent.map(() => 0);
     for (let i = 0; i < lab.length; i++) if (lab[i] >= 0) area[lab[i]]++;
     // skoro stejné odstíny (tmavší lem, stín) sloučit do větší plochy: dvě modré -> jedna
+    // Vzdálenost barev jako ji vidí oko (Lab): světle šedá a bílá, tři odstíny krémové u Jerryho -> jedna barva.
+    // Drobné plochy (pod 1,5 %) se slučují ochotněji, ať je barev co nejméně.
+    const labC = cent.map(toLab), totA = area.reduce((x, y) => x + y, 0) || 1;
     for (;;) {
       let pa = -1, pb = -1, pd = 1e9;
       for (let a = 0; a < cent.length; a++) for (let b = 0; b < cent.length; b++) {
         if (a === b || !area[a] || !area[b] || area[a] > area[b] * 0.6) continue;
         if (lum(cent[a]) < 60 && lum(cent[b]) < 60) continue;          // černé linky nechat
-        const d = Math.hypot(cent[a][0] - cent[b][0], cent[a][1] - cent[b][1], cent[a][2] - cent[b][2]);
-        if (d < 38 && d < pd) { pd = d; pa = a; pb = b; }
+        const d = Math.hypot(labC[a][0] - labC[b][0], labC[a][1] - labC[b][1], labC[a][2] - labC[b][2]);
+        if (d < (area[a] < totA * 0.015 ? 24 : 17) && d < pd) { pd = d; pa = a; pb = b; }
       }
       if (pa < 0) break;
       for (let i = 0; i < lab.length; i++) if (lab[i] === pa) lab[i] = pb;
@@ -508,6 +547,17 @@
     const areas = used.map((c) => area[c]);
     // výchozí role: tmavé = obrys, bílé/krémové = dřevo, zbytek = nátěr
     const roles = cent.map((c, k) => (k === 0 || lum(c) < 60 ? "outline" : lum(c) > 205 && c[2] <= c[1] + 10 && Math.max(...c) - Math.min(...c) < 70 ? "wood" : 2));
+    // další tmavá barva (tmavě hnědá srst, stín) tvořící hlavně plochy, ne tahy, je natřená plocha, ne obrys
+    for (let k = 1; k < cent.length; k++) {
+      if (roles[k] !== "outline") continue;
+      const mk = new Uint8Array(W * H);
+      let nk = 0;
+      for (let i = 0; i < mk.length; i++) if (lab[i] === k) { mk[i] = 1; nk++; }
+      const op = open(mk, W, H, Math.max(3, Math.round(Math.max(W, H) / 200)));
+      let nc = 0;
+      for (let i = 0; i < op.length; i++) nc += op[i];
+      if (nk && nc / nk > 0.5) roles[k] = 2;
+    }
     // bílé a krémové plochy: ve výchozím stavu natřená vrstva (bíle nebo holé dřevo), ne součást horní vrstvy
     // nejtmavší barva tvořící hlavně velké plochy (tělo Krtka), ne tenké tahy -> natřená vrstva, ne obrys
     {

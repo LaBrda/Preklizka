@@ -63,6 +63,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
 .msw { width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--line); cursor: pointer; padding: 0; }
 .msw:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
 .btn.mini { padding: 3px 7px; font-size: .78rem; }
+.addc { position: relative; overflow: hidden; }
 .cinfo { font: 400 .78rem var(--mono); color: var(--muted); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .seg button { font: 500 .8rem var(--body); border: 0; background: transparent; color: var(--muted); padding: 5px 8px; cursor: pointer; }
@@ -197,6 +198,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     <div class="sec">
       <h2>Barvy</h2>
       <div class="colors" id="colors"></div>
+      <label class="btn mini addc" style="align-self:start" title="Přidat novou barvu, kterou pak v záložce Linky dáš políčkům">+ přidat barvu<input type="color" class="swin" id="cAdd" value="#d8352b" aria-label="Přidat barvu"></label>
       <p class="hint">Kliknutím na čtvereček barvu změníš. U každé barvy vyber, kam patří. Černá: díra ve všech vrstvách až na černou desku. Obrys je černá deska a dřevěné linky nahoře. Čísla jsou natřené vrstvy, vyšší číslo leží výš (bílou natři bíle, nebo nech holé dřevo). Dřevo znamená, že plocha bude vystouplá jako součást horní vrstvy.</p>
       <div class="fields">
         <div class="f"><label for="nLayers">Počet vrstev</label><div class="in"><select id="nLayers"><option value="3" selected>3</option><option value="4">4</option><option value="5">5</option></select></div></div>
@@ -264,6 +266,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
         <button type="button" id="lmErase" aria-pressed="false">Štětec: smazat tah</button>
       </div>
       <div class="pal" id="pal" role="group" aria-label="Paleta"></div>
+      <label class="btn addc" title="Přidat do palety novou barvu (třeba k obarvení černobílé kresby)">+ barva<input type="color" class="swin" id="lAdd" value="#d8352b" aria-label="Přidat barvu"></label>
       <label class="range" for="brush">Štětec <input type="range" id="brush" min="1" max="20" value="4"> <span id="brushV">4 mm</span></label>
       <button class="btn" id="lReset" type="button">Zrušit úpravy</button>
       <button class="btn" id="lDl" type="button">Stáhnout linky SVG</button>
@@ -320,6 +323,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     return `<span><i class="sq" style="background:linear-gradient(90deg,#c48338 50%,#efacbf 0)"></i>natřít (bude vidět)</span><span><i class="sq" style="background:#d8b88a"></i>holé dřevo pod vrstvou ${k + 1}</span><span><i style="background:linear-gradient(90deg,#7a4f22 50%,#8f6672 0)"></i>linka nátěru (v SVG v barvě nátěru)</span><span><i class="sq chk"></i>díra</span><span><i style="background:#00bec5"></i>značka pro kousky vrstvy ${k + 1}</span>`;
   }
   let src = null, an = null, roles = null, res = null, view = "asm", timer = 0, layerURL = null;
+  let manualRole = new Set();   // barvy, kterým uživatel sám vybral vrstvu; ostatní se rozdělují automaticky
 
   function opts() {
     const n = (id) => parseFloat($(id).value);
@@ -426,7 +430,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     later(async () => {
       an = LaserLayers.analyze(src.data, src.w, src.h, Math.max(2, Math.min(16, parseInt($("nColors").value) || 12)), { tol: +$("bgTol").value || 30, bgSeeds, fgSeeds });
       drawBg();
-      roles = defaultRoles();
+      roles = defaultRoles(); manualRole = new Set();
       cellColor = new Map(); holeEdit = new Int8Array(an.W * an.H); outlineKey = ""; erase = new Uint8Array(an.W * an.H); colorClicks = []; eraseVer++;
       computeLA();
       drawColors();
@@ -566,6 +570,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     if (roles.every((r) => r === "outline")) { $("msg").textContent = "Aspoň jedna barva musí být natřená vrstva nebo dřevo."; return; }
     computeLA();
     const cmp = LaserLayers.composeLines(an, la, cellColor, holeEdit);
+    autoRoles(cmp.lab); drawColors();
     const seq = ++buildSeq;
     let out = null;
     if (server) {
@@ -623,7 +628,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
         b.textContent = r === "board" ? "Černá" : r === "outline" ? "Obrys" : r === "wood" ? "Dřevo" : String(r);
         b.title = r === "board" ? "díra ve všech vrstvách až na černou desku" : r === "outline" ? "dřevěné linky (kresba)" : r === "wood" ? "holé dřevo v horní vrstvě" : "natřít na vrstvě " + r;
         b.setAttribute("aria-pressed", roles[k] === r ? "true" : "false");
-        b.onclick = () => { roles[k] = r; seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false")); rebuild(); };
+        b.onclick = () => { roles[k] = r; manualRole.add(k); seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false")); rebuild(); };
         seg.appendChild(b);
       });
       const x = document.createElement("button"); x.type = "button"; x.className = "cx"; x.textContent = "×"; x.title = "Odebrat nebo sloučit s jinou barvou";
@@ -643,6 +648,27 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       row.append(sw, info, seg, x); box.appendChild(row); box.appendChild(mrow);
     });
   }
+  // nová barva do palety: u černobílé kresby si ji uživatel dá políčkům v záložce Linky
+  function addColor(hexv) {
+    if (!an || an.cent.length >= 120) return;
+    const c = [1, 3, 5].map((o) => parseInt(hexv.substr(o, 2), 16));
+    an.cent.push(c); an.areas = Array.from(an.areas); an.areas.push(0); an.roles.push(2); an.whiteish.push(false); roles.push(2);
+    palSel = an.cent.length - 1; setLineMode("color");
+    drawColors(); drawPalette();
+    $("msg").textContent = "Barva přidána. V záložce Linky ji vyber v paletě a klikej do políček.";
+  }
+  $("lAdd").addEventListener("change", (e) => addColor(e.target.value));
+  $("cAdd").addEventListener("change", (e) => { addColor(e.target.value); show("lines"); });
+  // plochy barev po obarvení políček; barvy bez ruční volby se znovu rozdělí do vrstev (větší níž)
+  function autoRoles(lab) {
+    const cnt = new Array(an.cent.length).fill(0);
+    for (let i = 0; i < lab.length; i++) if (lab[i] >= 0 && !(la && la.line[i])) cnt[lab[i]]++;
+    an.areas = cnt.map((v, k) => (roles[k] === "outline" ? an.areas[k] : v));
+    const d = defaultRoles();
+    let changed = false;
+    roles.forEach((r, k) => { if (!manualRole.has(k) && typeof r === "number" && typeof d[k] === "number" && d[k] !== r) { roles[k] = d[k]; changed = true; } });
+    return changed;
+  }
   function nearestColor(k) {
     let best = -1, bd = 1e18;
     an.cent.forEach((c, j) => { if (j === k) return; const d = c.reduce((a, v, i) => a + (v - an.cent[k][i]) ** 2, 0); if (d < bd) { bd = d; best = j; } });
@@ -656,6 +682,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     an.areas[j] += an.areas[k];
     an.areas = Array.from(an.areas);
     [an.cent, an.areas, an.roles, an.whiteish, roles].forEach((a) => a.splice(k, 1));
+    manualRole = new Set([...manualRole].filter((m) => m !== k).map((m) => (m > k ? m - 1 : m)));
     cellColor = new Map(); colorClicks = []; outlineKey = "";
     computeLA(); drawColors(); drawPalette(); if (view === "lines") drawLines();
     $("msg").textContent = "Barvy sloučeny.";
@@ -929,7 +956,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
 
   ["width", "frame", "gap", "struts", "strutWidth", "chamfer", "hole", "rim", "sepLine", "minFeature", "minPiece", "dropThin", "bridges", "engrave", "smooth"].forEach((id) => $(id).addEventListener("input", rebuild));
   $("nColors").addEventListener("change", () => src && analyze());
-  $("nLayers").addEventListener("change", () => { if (an) { roles = defaultRoles(); drawColors(); rebuild(); } });
+  $("nLayers").addEventListener("change", () => { if (an) { roles = defaultRoles(); manualRole = new Set(); drawColors(); rebuild(); } });
 
   // ---- ukázka: vlastní kreslené autíčko ----
   function sample() {
