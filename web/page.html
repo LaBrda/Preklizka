@@ -378,19 +378,21 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       if (an) rebuild();
     } catch (e) { server = null; }
   })();
+  function updMsg(t) { $("msg").textContent = t; $("srvInfo").textContent = t; }
   $("updBtn").addEventListener("click", async () => {
     const latest = await latestVersion();
     const before = server.version;
-    if (latest && !newer(latest, before)) { $("msg").textContent = "Máš nejnovější verzi v" + before + "."; showServer(latest); return; }
+    if (latest && !newer(latest, before)) { showServer(latest); updMsg("Máš nejnovější verzi v" + before + "."); return; }
     let pw = "";
     if (server.updateNeedsPassword) { pw = window.prompt ? (window.prompt("Heslo pro aktualizaci") || "") : ""; }
     $("updBtn").disabled = true;
-    $("msg").textContent = "Stahuji novou verzi" + (latest ? " v" + latest : "") + "… (trvá to zhruba minutu)";
+    updMsg("Stahuji novou verzi" + (latest ? " v" + latest : "") + "… (trvá to zhruba minutu)");
     try {
       const r = await fetch("api/update", { method: "POST", headers: { "X-Update-Password": pw } });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) { $("msg").textContent = "Aktualizace se nepovedla: " + (j.detail || r.status); $("updBtn").disabled = false; return; }
-      if (j.status === "current") { $("msg").textContent = "Máš nejnovější verzi v" + before + "."; $("updBtn").disabled = false; return; }
+      if (!r.ok) { updMsg("Aktualizace se nepovedla: " + (j.detail || r.status)); $("updBtn").disabled = false; return; }
+      if (j.ok === false) { updMsg("Aktualizační služba (Watchtower) odmítla požadavek: " + j.status + (j.status === 401 ? " – nesedí WATCHTOWER_TOKEN v .env" : "")); $("updBtn").disabled = false; return; }
+      if (j.status === "current") { updMsg("Máš nejnovější verzi v" + before + "."); $("updBtn").disabled = false; return; }
     } catch (e) { /* appka se může restartovat ještě před odpovědí */ }
     // čekat, až naběhne nová verze; pak stránku obnovit
     const t0 = Date.now();
@@ -398,10 +400,10 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       const s = Math.round((Date.now() - t0) / 1000);
       try {
         const h = await (await fetch("api/health", { cache: "no-store" })).json();
-        if (h.version !== before) { $("msg").textContent = "Hotovo, běží v" + h.version + ". Obnovuji stránku…"; setTimeout(() => location.reload(), 1500); return; }
-      } catch (e) { $("msg").textContent = "Appka se restartuje… (" + s + " s)"; }
-      if (s > 180) { $("msg").textContent = "Nová verze zatím nenaběhla. Zkus to za chvíli znovu, nebo zkontroluj server (docker compose ps)."; $("updBtn").disabled = false; return; }
-      if (!/restartuje/.test($("msg").textContent)) $("msg").textContent = "Stahuji novou verzi… (" + s + " s)";
+        if (h.version !== before) { updMsg("Hotovo, běží v" + h.version + ". Obnovuji stránku…"); setTimeout(() => location.reload(), 1500); return; }
+      } catch (e) { updMsg("Appka se restartuje… (" + s + " s)"); }
+      if (s > 180) { updMsg("Nová verze zatím nenaběhla. Zkus to za chvíli znovu, nebo zkontroluj server (docker compose ps)."); $("updBtn").disabled = false; return; }
+      if (!/restartuje/.test($("msg").textContent)) updMsg("Stahuji novou verzi… (" + s + " s)");
       setTimeout(tick, 3000);
     };
     setTimeout(tick, 3000);
