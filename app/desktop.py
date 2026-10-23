@@ -44,9 +44,20 @@ def free_port(preferred: int) -> int:
         return s.getsockname()[1]
 
 
+class _Log(list):
+    """Průběžně zapisuje do selftest.log (v CI je vidět, kde se to zaseklo)."""
+    def append(self, x):
+        super().append(x)
+        try:
+            (app_dir() / "selftest.log").write_text("\n".join(self), encoding="utf-8")
+        except OSError:
+            pass
+
+
 def selftest() -> int:
-    out = []
+    out = _Log()
     ok = True
+    out.append("start")
     try:
         import numpy as np
         import vrstvy
@@ -63,10 +74,12 @@ def selftest() -> int:
         import onnxruntime as ort
         out.append(f"onnxruntime {ort.__version__} {ort.get_available_providers()}")
         if sys.platform == "win32":
+            out.append("import webview…")
             import webview  # noqa: F401
             out.append("pywebview OK")
         if "--ai" in sys.argv:                               # stáhnout malý model a zkusit zvětšení
             os.environ["PREKLIZKA_MODELS"] = str(app_dir() / "Preklizka_modely")
+            out.append("stahuji model…")
             for _ in range(240):
                 st = ai.prepare(["esrgan-fast.onnx"])
                 if st["ready"] or st.get("error"):
@@ -75,6 +88,7 @@ def selftest() -> int:
             img = np.zeros((40, 50, 4), np.uint8)
             img[..., 3] = 255
             img[10:30, 10:40, 0] = 200
+            out.append(f"model {st}")
             up = ai.upscale(img, "fast")
             good = up.shape == (160, 200, 4)
             out.append(f"AI zvětšení {'OK' if good else 'FAIL'} {up.shape}")

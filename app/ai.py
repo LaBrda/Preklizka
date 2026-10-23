@@ -117,6 +117,7 @@ def _session(name: str, cpu: bool = False):
     if key in _sess:
         return _sess[key]
     prov = ort.get_available_providers()
+    cpu = cpu or os.environ.get("PREKLIZKA_AI_CPU") == "1"
     use = [] if cpu else [p for p in ("CUDAExecutionProvider", "DmlExecutionProvider") if p in prov]
     so = ort.SessionOptions()
     so.log_severity_level = 3
