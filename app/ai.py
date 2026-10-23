@@ -430,6 +430,13 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
         edge |= tiny[cc]
         out[edge] = (22, 20, 24)
         fgF = fgF | edge
+    # odtržené drobky mimo postavu (zbytky pozadí) pryč
+    n, cc, st, _ = cv2.connectedComponentsWithStats(fgF.astype(np.uint8), connectivity=8)
+    if n > 2:
+        big = st[1:, cv2.CC_STAT_AREA].max()
+        keep = np.zeros(n, bool)
+        keep[1:] = st[1:, cv2.CC_STAT_AREA] >= big * 0.01
+        fgF = keep[cc]
     a = np.where(fgF, 255, 0).astype(np.uint8)
     return np.dstack([out, a])
 
