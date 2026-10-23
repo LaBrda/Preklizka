@@ -1,0 +1,36 @@
+name: AI modely
+
+on:
+  push:
+    branches: [main]
+    paths: [tools/export_models.py, .github/workflows/models.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  models:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Převést do ONNX
+        run: |
+          pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install onnx==1.17.0 onnxruntime==1.20.1 numpy
+          python tools/export_models.py
+          python -c "import onnxruntime as o,glob;[print(f,[i.shape for i in o.InferenceSession(f).get_inputs()]) for f in sorted(glob.glob('models_out/*.onnx'))]"
+      - name: Vydat (release modely)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: modely
+          name: AI modely pro Překližkové vrstvy
+          prerelease: true
+          make_latest: false
+          files: models_out/*.onnx
+          body: |
+            Modely, které si appka sama stáhne při prvním použití AI funkce. Ručně je stahovat netřeba.
+            Zdroje: Real-ESRGAN (xinntao), AnimeGANv2 (bryandlee/animegan2-pytorch), IS-Net a SAM (rembg).
