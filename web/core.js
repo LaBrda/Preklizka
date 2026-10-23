@@ -1224,7 +1224,13 @@
           const q = L5.lab[owner[i]];
           tot[q]++; if (line[i]) toLine[q]++;
         }
-        for (let i = 0; i < N; i++) { const q = L5.lab[i]; if (q && toLine[q] > 0.4 * tot[q]) hole[i] = 0; }
+        // ztluštělý kus obrysu (bublinka v lince): jen o málo silnější než tah a z velké části navazuje na linku
+        const mx5 = new Float64Array(L5.n + 1);
+        for (let i = 0; i < N; i++) if (L5.lab[i] && d[i] > mx5[L5.lab[i]]) mx5[L5.lab[i]] = d[i];
+        for (let i = 0; i < N; i++) {
+          const q = L5.lab[i];
+          if (q && (toLine[q] > 0.4 * tot[q] || (toLine[q] > 0.25 * tot[q] && Math.sqrt(mx5[q]) < 1.5 * sw))) hole[i] = 0;
+        }
       }
     }
     return { W, H, mm, line, hole, cells: C.lab, nCells: nC, cellSize: C.sizes, dom, multi, outlineIdx, hasOutline, strokeMm };
