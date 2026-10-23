@@ -169,20 +169,136 @@ def _flatten(rgba: np.ndarray) -> np.ndarray:
 
 
 # ---- pozadí (IS-Net) ----
-def remove_bg(rgba: np.ndarray, kind: str) -> np.ndarray:
+def _guided(guide: np.ndarray, src: np.ndarray, r: int, eps: float) -> np.ndarray:
+    """Guided filter (He et al.): zarovná hranu masky s hranami v obrázku."""
     import cv2
-    rgb = _flatten(rgba)
+    k = (2 * r + 1, 2 * r + 1)
+    mI = cv2.boxFilter(guide, -1, k)
+    mp = cv2.boxFilter(src, -1, k)
+    cov = cv2.boxFilter(guide * src, -1, k) - mI * mp
+    var = cv2.boxFilter(guide * guide, -1, k) - mI * mI
+    a = cov / (var + eps)
+    b = mp - a * mI
+    return cv2.boxFilter(a, -1, k) * guide + cv2.boxFilter(b, -1, k)
+
+
+def bg_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
+    """Měkká maska popředí 0..1 v plném rozlišení."""
+    import cv2
     h, w = rgb.shape[:2]
-    x = cv2.resize(rgb, (1024, 1024), interpolation=cv2.INTER_AREA if max(h, w) > 1024 else cv2.INTER_CUBIC).astype(np.float32)
-    x = x / max(float(x.max()), 1e-6) - np.array([0.485, 0.456, 0.406], np.float32)
     name = "isnet-general-use.onnx" if kind == "photo" else "isnet-anime.onnx"
     inp = _session(name).get_inputs()[0].name
-    out = _run(name, {inp: x.transpose(2, 0, 1)[None].astype(np.float32)})[0][0, 0]
-    out = (out - out.min()) / max(float(out.max() - out.min()), 1e-6)
-    m = cv2.resize(out, (w, h), interpolation=cv2.INTER_LINEAR)
-    a = np.clip((m - 0.35) / 0.3, 0, 1)                 # ostřejší hrana, žádné průsvitné závoje
+    x = cv2.resize(rgb, (1024, 1024), interpolation=cv2.INTER_AREA if max(h, w) > 1024 else cv2.INTER_CUBIC).astype(np.float32)
+    x = x / max(float(x.max()), 1e-6) - np.array([0.485, 0.456, 0.406], np.float32)
+    outs = []
+    for flip in (False, True):                          # i zrcadlově otočený obrázek, průměr = stabilnější maska
+        xi = x[:, ::-1] if flip else x
+        o = _run(name, {inp: np.ascontiguousarray(xi.transpose(2, 0, 1)[None], np.float32)})[0][0, 0]
+        o = (o - o.min()) / max(float(o.max() - o.min()), 1e-6)
+        outs.append(o[:, ::-1] if flip else o)
+    m = cv2.resize((outs[0] + outs[1]) / 2, (w, h), interpolation=cv2.INTER_LINEAR).astype(np.float32)
+    # hrany dopočítat podle skutečného obrázku v plném rozlišení
+    g = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255.0
+    r = max(2, round(max(h, w) / 350))
+    m = np.clip(_guided(g, m, r, 1e-3), 0, 1)
+    # objekt: zalepit uzavřené díry (okna, mezery) a zahodit odtržené drobky
+    hard = (m > 0.5).astype(np.uint8)
+    n, cc, st, _ = cv2.connectedComponentsWithStats(hard, connectivity=8)
+    if n > 2:
+        big = st[1:, cv2.CC_STAT_AREA].max()
+        keep = np.zeros(n, bool)
+        keep[1:] = st[1:, cv2.CC_STAT_AREA] >= big * 0.01
+        drop = ~keep[cc] & (hard > 0)
+        m[drop] = 0
+        hard[drop] = 0
+    inv = (1 - hard).astype(np.uint8)
+    n, cc, st, _ = cv2.connectedComponentsWithStats(inv, connectivity=4)
+    border = set(np.unique(np.concatenate([cc[0], cc[-1], cc[:, 0], cc[:, -1]])).tolist())
+    holes = np.zeros(n, bool)
+    for i in range(1, n):
+        if i not in border and st[i, cv2.CC_STAT_AREA] < h * w * 0.02:
+            holes[i] = True
+    if kind == "photo":                                 # u kreslených jsou uzavřené díry skutečné pozadí (mezi rukou a tělem)
+        m[holes[cc]] = 1.0
+        m = _grabcut_refine(rgb, m)
+    return m
+
+
+def _grabcut_refine(rgb: np.ndarray, m: np.ndarray) -> np.ndarray:
+    """Nejisté pásmo kolem hrany rozhodnout podle barev (GrabCut). Pomůže u kol, nárazníků, zrcátek."""
+    import cv2
+    h, w = rgb.shape[:2]
+    s = min(1.0, 900 / max(h, w))
+    sw, sh = max(8, round(w * s)), max(8, round(h * s))
+    small = cv2.resize(rgb, (sw, sh), interpolation=cv2.INTER_AREA)
+    ms = cv2.resize(m, (sw, sh), interpolation=cv2.INTER_AREA)
+    hard = (ms > 0.5).astype(np.uint8)
+    if hard.sum() < 50 or hard.all():
+        return m
+    k = max(3, round(max(sw, sh) / 60))
+    core = cv2.erode(hard, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * k + 1, 2 * k + 1)))
+    far = cv2.dilate(hard, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (4 * k + 1, 4 * k + 1))) == 0
+    gc = np.where(ms > 0.5, cv2.GC_PR_FGD, cv2.GC_PR_BGD).astype(np.uint8)
+    gc[core > 0] = cv2.GC_FGD
+    gc[(ms > 0.85) & (core == 0)] = cv2.GC_PR_FGD
+    gc[far] = cv2.GC_BGD
+    gc[ms < 0.03] = cv2.GC_BGD
+    try:
+        bgd, fgd = np.zeros((1, 65), np.float64), np.zeros((1, 65), np.float64)
+        cv2.grabCut(cv2.cvtColor(small, cv2.COLOR_RGB2BGR), gc, None, bgd, fgd, 4, cv2.GC_INIT_WITH_MASK)
+    except cv2.error:
+        return m
+    fg = ((gc == cv2.GC_FGD) | (gc == cv2.GC_PR_FGD)).astype(np.float32)
+    fg = cv2.resize(fg, (w, h), interpolation=cv2.INTER_LINEAR)
+    # GrabCut smí jen doplnit nejisté kousky (kola u země, nárazník), nikdy neubírá to, co síť našla
+    add = (fg > 0.5) & (m > 0.12) & (m <= 0.5)
+    out = np.where(add, np.maximum(m, fg), m)
+    g = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255.0
+    return np.clip(_guided(g, out.astype(np.float32), max(2, round(max(h, w) / 400)), 1e-3), 0, 1)
+
+
+def _flood_mask(rgb: np.ndarray, tol: int = 40) -> np.ndarray:
+    """Záchrana pro kresby: pozadí = barva okraje zaplavená od krajů. Mezery v obrysu se dočasně uzavřou."""
+    import cv2
+    h, w = rgb.shape[:2]
+    edge = np.concatenate([rgb[0], rgb[-1], rgb[:, 0], rgb[:, -1]])
+    ref = np.median(edge, 0)
+    near = (np.abs(rgb.astype(np.int16) - ref).max(-1) < tol).astype(np.uint8)
+    r = max(2, round(max(h, w) / 150))                 # mezery v obrysu do ~1,3 % velikosti
+    ker = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
+    walls = cv2.dilate(1 - near, ker)                   # zesílené čáry jen pro hledání pozadí
+    open_ = (near > 0) & (walls == 0)
+    n, cc = cv2.connectedComponents(open_.astype(np.uint8), connectivity=4)
+    border = np.unique(np.concatenate([cc[0], cc[-1], cc[:, 0], cc[:, -1]]))
+    bg = np.isin(cc, border[border > 0]) & open_
+    bg = (cv2.dilate(bg.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 3, 2 * r + 3))) > 0) & (near > 0)
+    return (~bg).astype(np.float32)
+
+
+def remove_bg(rgba: np.ndarray, kind: str, soft: bool = False) -> np.ndarray:
+    import cv2
+    rgb = _flatten(rgba)
+    sat = rgb.max(-1).astype(np.int16) - rgb.min(-1)
+    lineart = kind != "photo" and (sat < 30).mean() > 0.97
+    if lineart:                                         # černobílá kresba: síť ji nepochopí, stačí zaplavit pozadí
+        m = _flood_mask(rgb)
+        rgba = np.dstack([rgb, np.full(rgb.shape[:2], 255, np.uint8)])   # průhledný vnitřek kresby -> bílá plocha
+    else:
+        m = bg_mask(rgb, kind)
+    if (m > 0.5).mean() < 0.02 and kind != "photo":     # kresba bez ploch: model nic nenašel
+        m = bg_mask(rgb, "photo")
+    if (m > 0.5).mean() < 0.02:
+        m = _flood_mask(rgb)
+    a = np.clip((m - 0.2) / 0.6, 0, 1) if soft else np.clip((m - 0.4) / 0.2, 0, 1)   # soft = jemné vlasy pro PNG
+    # uvnitř objektu plná maska, měkce jen v úzkém pásu u okraje (žádné průsvitné plochy)
+    hard = (m > 0.5).astype(np.uint8)
+    r = max(2, round(max(m.shape) / 250))
+    inner = cv2.erode(hard, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))) > 0
+    outer = cv2.dilate(hard, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))) == 0
+    a[inner] = 1.0
+    a[outer] = 0.0
     res = rgba.copy()
-    res[..., 3] = (a * (rgba[..., 3].astype(np.float32))).astype(np.uint8)
+    res[..., 3] = (a * rgba[..., 3].astype(np.float32)).astype(np.uint8)
     return res
 
 
@@ -533,7 +649,7 @@ def run(op: str, png: bytes, p: dict) -> bytes:
     """Vstupní bod pro pracovní proces."""
     img = decode(png)
     if op == "bg":
-        res = remove_bg(img, p.get("kind", "anime"))
+        res = remove_bg(img, p.get("kind", "anime"), bool(p.get("soft", False)))
     elif op == "select":
         pts = p.get("points") or []
         if not pts and not p.get("box"):

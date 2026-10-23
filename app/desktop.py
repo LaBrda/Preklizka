@@ -120,6 +120,17 @@ class Api:
     def __init__(self):
         self.window = None
 
+    def save_png(self, name, b64):
+        import base64
+        import webview
+        res = self.window.create_file_dialog(webview.SAVE_DIALOG, save_filename=name, file_types=("PNG (*.png)", "Všechny soubory (*.*)"))
+        if not res:
+            return ""
+        path = res if isinstance(res, str) else res[0]
+        with open(path, "wb") as f:
+            f.write(base64.b64decode(b64))
+        return path
+
     def save_file(self, name, content):
         import webview
         res = self.window.create_file_dialog(webview.SAVE_DIALOG, save_filename=name, file_types=("SVG (*.svg)", "Všechny soubory (*.*)"))

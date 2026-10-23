@@ -167,6 +167,11 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
         <button class="btn aib" id="aiSel" type="button">Vybrat kliknutím</button>
         <button class="btn aib" id="aiUp" type="button">Zvětšit a vyčistit</button>
       </div>
+      <h3>Jen vyříznout pozadí</h3>
+      <div class="fields">
+        <div class="f"><label for="aiCutKind">Obrázek je</label><div class="in"><select id="aiCutKind"><option value="photo" selected>fotka</option><option value="anime">kreslený</option></select></div></div>
+        <button class="btn aib" id="aiCut" type="button" style="align-self:end">Stáhnout PNG bez pozadí</button>
+      </div>
       <h3>Fotka → kreslený obrázek</h3>
       <div class="fields">
         <div class="f"><label for="aiStyle">Styl</label><div class="in"><select id="aiStyle"><option value="portret" selected>portrét</option><option value="krajina">scéna, celá postava</option><option value="none">jen zjednodušit</option><option value="poly">polygony (pokus)</option></select></div></div>
@@ -898,6 +903,47 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     } else aiClick(Math.floor(x0), Math.floor(y0), d.shift || e.shiftKey);
   });
 
+  // samostatné vyříznutí pozadí: původní obrázek v plném rozlišení -> PNG s průhledným pozadím
+  function fullPNG() {
+    const im = origImg;
+    if (!im) return srcPNG(orig || src);
+    let w = im.naturalWidth || im.width, h = im.naturalHeight || im.height;
+    const k = Math.min(1, 4096 / Math.max(w, h)); w = Math.round(w * k); h = Math.round(h * k);
+    const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(im, 0, 0, w, h);
+    return c.toDataURL("image/png");
+  }
+  async function savePNG(b64png, name) {
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.save_png) {
+      const p = await window.pywebview.api.save_png(name, b64png); $("msg").textContent = p ? "Uloženo: " + p : "Ukládání zrušeno."; return;
+    }
+    const bin = Uint8Array.from(atob(b64png), (ch) => ch.charCodeAt(0));
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([bin], { type: "image/png" })); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+    $("msg").textContent = "Uloženo: " + name;
+  }
+  $("aiCut").addEventListener("click", async () => {
+    if (!src || aiBusy) return;
+    aiBusy = true; document.querySelectorAll(".aib").forEach((b) => (b.disabled = true)); busy(true);
+    const t0 = Date.now();
+    try {
+      const post = (u, b) => fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
+      const params = { kind: $("aiCutKind").value, soft: true };
+      for (;;) {
+        const r = await post("api/ai/prepare", { op: "bg", params }); const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.detail || "server " + r.status);
+        if (j.ready) break;
+        if (j.error) throw new Error("model se nepodařilo stáhnout (" + j.error + ")");
+        $("msg").textContent = `Stahuji AI model, jen poprvé (${j.mb} MB): ${j.pct} %`; await sleep(800);
+      }
+      $("msg").textContent = "Vyřezávám pozadí v plném rozlišení…";
+      const r = await post("api/ai/run", { op: "bg", params, img: fullPNG() }); const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.detail || "server " + r.status);
+      await savePNG(j.img, base() + "_bez_pozadi.png");
+      $("msg").textContent += " (" + ((Date.now() - t0) / 1000).toFixed(1) + " s)";
+    } catch (e) { $("msg").textContent = "AI: " + e.message; }
+    busy(false); aiBusy = false; document.querySelectorAll(".aib").forEach((b) => (b.disabled = false));
+  });
+
   // ---- vstup ----
   function loadImage(img, label, keepOrig) {
     let w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
@@ -913,10 +959,11 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     if (!keepOrig) { orig = src; origLabel = label; vecDirty = true; $("vOrig").hidden = true; $("fname").dataset.base = label.replace(/\.[^.]+$/, ""); }
     analyze();
   }
+  let origImg = null;
   function fromFile(file) {
     if (!file || !file.type.startsWith("image/")) { $("msg").textContent = "Tohle není obrázek. Vyber PNG nebo JPG."; return; }
     const url = URL.createObjectURL(file), img = new Image();
-    img.onload = () => { loadImage(img, file.name); URL.revokeObjectURL(url); };
+    img.onload = () => { origImg = img; loadImage(img, file.name); };
     img.onerror = () => { $("msg").textContent = "Obrázek se nepodařilo načíst."; };
     img.src = url;
   }
