@@ -211,6 +211,13 @@
     return out;
   }
   const lum = (c) => 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+  function toLab(c) {   // sRGB -> CIE Lab (D65)
+    const f = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    const r = f(c[0]), g = f(c[1]), b = f(c[2]);
+    const X = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047, Y = 0.2126 * r + 0.7152 * g + 0.0722 * b, Z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883;
+    const t = (v) => (v > 0.008856 ? Math.cbrt(v) : 7.787 * v + 16 / 116);
+    return [116 * t(Y) - 16, 500 * (t(X) - t(Y)), 200 * (t(Y) - t(Z))];
+  }
 
   // Pozadí: průhlednost, nebo (u JPG) bílé/jednolité pozadí zaplavené od okraje
   // Pozadí: průhlednost, nebo barva rohů zaplavená od okraje. bg.tol = citlivost,
@@ -237,8 +244,29 @@
     let transparent = 0;
     for (let i = 0; i < N; i++) if (transparentPx(i)) transparent++;
     const back = new Uint8Array(N);
+    const gapR0 = Math.max(2, Math.round(Math.max(W, H) / 400));
+    // pozadí = místa pozadí dosažitelná od okraje; neprotéká mezerami v obrysu (bariéra = postava rozšířená o pár pixelů)
+    const floodOutside = (isBg, seeds, gr) => {
+      const gapR = gr || gapR0;
+      const notBg = new Uint8Array(N);
+      for (let i = 0; i < N; i++) notBg[i] = isBg(i) ? 0 : 1;
+      const barrier = dilate(notBg, W, H, gapR);
+      flood(seeds.filter((i) => !barrier[i]), (i) => isBg(i) && !barrier[i], back);
+      // dorovnat pozadí až k postavě (pás, který zabrala bariéra), ale jen tam, kam se dosáhne zvenku
+      const d = edt(back, W, H, false).d, lim = (gapR + 1) * (gapR + 1);
+      for (let i = 0; i < N; i++) if (!back[i] && isBg(i) && d[i] <= lim) back[i] = 1;
+    };
     if (transparent > N * 0.01) {
-      for (let i = 0; i < N; i++) back[i] = transparentPx(i) ? 1 : 0;
+      // kresba jen z tahů na průhledném pozadí (omalovánka v PNG): vnitřek uzavřených tvarů patří k postavě (bílá plocha)
+      let opaque = 0, dark = 0;
+      for (let i = 0; i < N; i++) if (!transparentPx(i)) { opaque++; if (0.299 * rgba[i * 4] + 0.587 * rgba[i * 4 + 1] + 0.114 * rgba[i * 4 + 2] < 110) dark++; }
+      if (opaque > 0 && dark > opaque * 0.8) {
+        const border = [];
+        for (let x = 0; x < W; x++) border.push(x, (H - 1) * W + x);
+        for (let y = 0; y < H; y++) border.push(y * W, y * W + W - 1);
+        // náčrtové tahy mívají mezery (vlasy Ricka): bariéra širší než u barevných obrázků
+        floodOutside(transparentPx, border.filter((i) => transparentPx(i)), Math.max(gapR0, Math.round(Math.max(W, H) / 150)));
+      } else for (let i = 0; i < N; i++) back[i] = transparentPx(i) ? 1 : 0;
     } else {
       // barva pozadí = nejčastější barva v pásu u okraje (ignoruje tenký rámeček obrázku)
       const band = Math.max(3, Math.round(Math.min(W, H) * 0.012)), cnt = new Map();
@@ -254,22 +282,65 @@
       const ref = [((bestK >> 10) & 31) * 8 + 4, ((bestK >> 5) & 31) * 8 + 4, (bestK & 31) * 8 + 4];
       const seeds = bandPx.filter((i) => near(i, ref));
       // Pozadí se nesmí protéct do postavy malými mezerami v obrysu (bílá rukavice na bílém pozadí).
-      // Bariéra = všechno, co není barvy pozadí, rozšířené o pár pixelů; zaplavuje se jen mimo ni.
-      const notBg = new Uint8Array(N);
-      for (let i = 0; i < N; i++) notBg[i] = transparentPx(i) || near(i, ref) ? 0 : 1;
-      const gapR = Math.max(2, Math.round(Math.max(W, H) / 400));
-      const barrier = dilate(notBg, W, H, gapR);
-      flood(seeds.filter((i) => !barrier[i]), (i) => near(i, ref) && !barrier[i], back);
-      // dorovnat pozadí až k postavě (pás, který zabrala bariéra), ale jen tam, kam se dosáhne zvenku
-      { const d = edt(back, W, H, false).d, lim = (gapR + 1) * (gapR + 1);
-        for (let i = 0; i < N; i++) if (!back[i] && near(i, ref) && d[i] <= lim) back[i] = 1; }
+      floodOutside((i) => transparentPx(i) || near(i, ref), seeds);
       // tenký rámeček obrázku u okraje (jiná barva než pozadí) taky patří k pozadí
       for (const i of bandPx) back[i] = 1;
+      // nakreslený rámeček stránky (omalovánka): rovné čáry po všech čtyřech stranách postavy -> pozadí, pak znovu zaplavit
+      let x0 = W, x1 = -1, y0 = H, y1 = -1;
+      const C0 = label(not(back), W, H);   // obdélník největšího kusu (číslo stránky pod rámečkem nepočítat)
+      let q0 = 0; for (let q = 1; q <= C0.n; q++) if (!q0 || C0.sizes[q] > C0.sizes[q0]) q0 = q;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (q0 && C0.lab[y * W + x] === q0) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      if (x1 > x0 + 20 && y1 > y0 + 20) {
+        const bw = x1 - x0 + 1, bh = y1 - y0 + 1, t = Math.max(3, Math.round(0.03 * Math.min(bw, bh)));
+        const rowN = (y) => { let c = 0; for (let x = x0; x <= x1; x++) c += back[y * W + x] ? 0 : 1; return c; };
+        const colN = (x) => { let c = 0; for (let y = y0; y <= y1; y++) c += back[y * W + x] ? 0 : 1; return c; };
+        const rows = [], cols = [];
+        for (let y = y0; y < y0 + t; y++) if (rowN(y) > 0.6 * bw) rows.push(y);
+        for (let y = y1; y > y1 - t; y--) if (rowN(y) > 0.6 * bw) rows.push(y);
+        for (let x = x0; x < x0 + t; x++) if (colN(x) > 0.6 * bh) cols.push(x);
+        for (let x = x1; x > x1 - t; x--) if (colN(x) > 0.6 * bh) cols.push(x);
+        const has = (arr, lo, hi) => arr.some((v) => v >= lo && v <= hi);
+        if (has(rows, y0, y0 + t) && has(rows, y1 - t, y1) && has(cols, x0, x0 + t) && has(cols, x1 - t, x1)) {
+          const frame = new Uint8Array(N);
+          for (const y of rows) for (let x = x0; x <= x1; x++) for (let d = -1; d <= 1; d++) { const yy = y + d; if (yy >= 0 && yy < H) frame[yy * W + x] = 1; }
+          for (const x of cols) for (let y = y0; y <= y1; y++) for (let d = -1; d <= 1; d++) { const xx = x + d; if (xx >= 0 && xx < W) frame[y * W + xx] = 1; }
+          back.fill(0);
+          floodOutside((i) => transparentPx(i) || near(i, ref) || frame[i], bandPx.filter((i) => near(i, ref) || frame[i]));
+          for (let i = 0; i < N; i++) if (frame[i]) back[i] = 1;
+          for (const i of bandPx) back[i] = 1;
+          // zbytky rámečku (zaoblené rohy) a jiné drobky mimo hlavní kresbu pryč
+          const fgm = not(back), C = label(fgm, W, H);
+          let big = 0; for (let q = 1; q <= C.n; q++) if (C.sizes[q] > big) big = C.sizes[q];
+          for (let i = 0; i < N; i++) if (C.lab[i] && C.sizes[C.lab[i]] < big * 0.02) back[i] = 1;
+        }
+      }
     }
     // kliknutá místa pozadí: zaplavit podobnou barvu od kliku
     for (const s0 of bg.bgSeeds || []) { const c = col(s0), m = new Uint8Array(N); flood([s0], (i) => !transparentPx(i) && near(i, c), m); for (let i = 0; i < N; i++) if (m[i]) back[i] = 1; }
     // kliknutá místa postavy: vrátit podobnou barvu, která skončila v pozadí
-    for (const s0 of bg.fgSeeds || []) { if (transparentPx(s0)) continue; const c = col(s0), m = new Uint8Array(N); flood([s0], (i) => back[i] && !transparentPx(i) && near(i, c), m); for (let i = 0; i < N; i++) if (m[i]) back[i] = 0; }
+    for (const s0 of bg.fgSeeds || []) {
+      if (transparentPx(s0)) {
+        // klik do průhledného místa kresby (vlasy Ricka, kam proteklo pozadí mezerami v tazích): uzavřít mezery
+        // čím dál širší bariérou, dokud oblast od kliku nepřestane sahat k okraji obrázku
+        const opaque = new Uint8Array(N);
+        for (let i = 0; i < N; i++) opaque[i] = transparentPx(i) ? 0 : 1;
+        for (const k of [1, 2, 3, 5, 8]) {
+          const g = Math.max(2, Math.round(Math.max(W, H) / 150)) * k, bar = dilate(opaque, W, H, g);
+          if (bar[s0]) continue;
+          const m = new Uint8Array(N);
+          flood([s0], (i) => !bar[i], m);
+          let edge = false;
+          for (let x = 0; x < W && !edge; x++) edge = m[x] || m[(H - 1) * W + x];
+          for (let y = 0; y < H && !edge; y++) edge = m[y * W] || m[y * W + W - 1];
+          if (edge) continue;
+          const grow = dilate(m, W, H, g + 1);
+          for (let i = 0; i < N; i++) if (grow[i] && transparentPx(i)) back[i] = 0;
+          break;
+        }
+        continue;
+      }
+      const c = col(s0), m = new Uint8Array(N); flood([s0], (i) => back[i] && !transparentPx(i) && near(i, c), m); for (let i = 0; i < N; i++) if (m[i]) back[i] = 0;
+    }
     for (let i = 0; i < N; i++) fg[i] = back[i] ? 0 : 1;
     return fg;
   }
@@ -407,8 +478,15 @@
   }
 
   // ---------- 1. krok: barvy ----------
-  function analyze(rgba, W, H, nColors, bg) {
-    const fg = foreground(rgba, W, H, bg);
+  function analyze(rgba0, W, H, nColors, bg) {
+    const fg = foreground(rgba0, W, H, bg);
+    // barvy z obrázku položeného na bílý papír (průhledné a poloprůhledné pixely postavy = bílá)
+    const rgba = new Uint8ClampedArray(rgba0.length);
+    for (let i = 0; i < W * H; i++) {
+      const a = rgba0[i * 4 + 3] / 255;
+      for (let ch = 0; ch < 3; ch++) rgba[i * 4 + ch] = rgba0[i * 4 + ch] * a + 255 * (1 - a);
+      rgba[i * 4 + 3] = 255;
+    }
     let cnt = 0;
     for (let i = 0; i < fg.length; i++) if (fg[i]) cnt++;
     let cent = dedupe(kmeans(flatSample((i, ch) => rgba[i * 4 + ch], fg, W, H, 40000), nColors, 12), 22);
@@ -468,13 +546,16 @@
     const area = cent.map(() => 0);
     for (let i = 0; i < lab.length; i++) if (lab[i] >= 0) area[lab[i]]++;
     // skoro stejné odstíny (tmavší lem, stín) sloučit do větší plochy: dvě modré -> jedna
+    // Vzdálenost barev jako ji vidí oko (Lab): světle šedá a bílá, tři odstíny krémové u Jerryho -> jedna barva.
+    // Drobné plochy (pod 1,5 %) se slučují ochotněji, ať je barev co nejméně.
+    const labC = cent.map(toLab), totA = area.reduce((x, y) => x + y, 0) || 1;
     for (;;) {
       let pa = -1, pb = -1, pd = 1e9;
       for (let a = 0; a < cent.length; a++) for (let b = 0; b < cent.length; b++) {
         if (a === b || !area[a] || !area[b] || area[a] > area[b] * 0.6) continue;
         if (lum(cent[a]) < 60 && lum(cent[b]) < 60) continue;          // černé linky nechat
-        const d = Math.hypot(cent[a][0] - cent[b][0], cent[a][1] - cent[b][1], cent[a][2] - cent[b][2]);
-        if (d < 38 && d < pd) { pd = d; pa = a; pb = b; }
+        const d = Math.hypot(labC[a][0] - labC[b][0], labC[a][1] - labC[b][1], labC[a][2] - labC[b][2]);
+        if (d < (area[a] < totA * 0.015 ? 24 : 17) && d < pd) { pd = d; pa = a; pb = b; }
       }
       if (pa < 0) break;
       for (let i = 0; i < lab.length; i++) if (lab[i] === pa) lab[i] = pb;
@@ -488,6 +569,17 @@
     const areas = used.map((c) => area[c]);
     // výchozí role: tmavé = obrys, bílé/krémové = dřevo, zbytek = nátěr
     const roles = cent.map((c, k) => (k === 0 || lum(c) < 60 ? "outline" : lum(c) > 205 && c[2] <= c[1] + 10 && Math.max(...c) - Math.min(...c) < 70 ? "wood" : 2));
+    // další tmavá barva (tmavě hnědá srst, stín) tvořící hlavně plochy, ne tahy, je natřená plocha, ne obrys
+    for (let k = 1; k < cent.length; k++) {
+      if (roles[k] !== "outline") continue;
+      const mk = new Uint8Array(W * H);
+      let nk = 0;
+      for (let i = 0; i < mk.length; i++) if (lab[i] === k) { mk[i] = 1; nk++; }
+      const op = open(mk, W, H, Math.max(3, Math.round(Math.max(W, H) / 200)));
+      let nc = 0;
+      for (let i = 0; i < op.length; i++) nc += op[i];
+      if (nk && nc / nk > 0.5) roles[k] = 2;
+    }
     // bílé a krémové plochy: ve výchozím stavu natřená vrstva (bíle nebo holé dřevo), ne součást horní vrstvy
     // nejtmavší barva tvořící hlavně velké plochy (tělo Krtka), ne tenké tahy -> natřená vrstva, ne obrys
     {
@@ -498,7 +590,16 @@
         const op = open(m0, W, H, Math.max(3, Math.round(Math.max(W, H) / 200)));
         let nc = 0;
         for (let i = 0; i < op.length; i++) nc += op[i];
-        if (nc / n0 > 0.5) roles[0] = "board";   // velké černé plochy: díra až na černou desku
+        // velké černé plochy bez obrysové kresby (auto s černými koly, 3D postavička): díra až na černou desku.
+        // Když je ale černou obtažená celá postava (Krtek, Mickey), jde o kresbu: tahy budou dřevěné linky
+        // a velké černé plochy z nich nástroj Linky sám udělá dírou (viz lineArt autoHole).
+        let nb = 0, nd = 0;
+        for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+          const i = y * W + x;
+          if (lab[i] < 0 || (lab[i - 1] >= 0 && lab[i + 1] >= 0 && lab[i - W] >= 0 && lab[i + W] >= 0)) continue;
+          nb++; if (lab[i] === 0) nd++;
+        }
+        if (nc / n0 > 0.5 && nd < 0.5 * nb) roles[0] = "board";
       }
     }
     const whiteish = cent.map((c, k) => roles[k] === "wood");
@@ -578,12 +679,15 @@
     const rimPx = Math.max(r, Math.round(px(opt.rim == null ? 3 : opt.rim)));
     const rim = opt.rim === 0 || EX ? new Uint8Array(N) : andNot(sil, erode(sil, w, h, rimPx));
     big = open(andNot(big, rim), w, h, r);
+    // kresba: barvy v roli Černá jsou díra hned (dostanou dělicí linky a okraj jako černé plochy z kresby)
+    if (EX) { const bd = isRole("board"); if (any(bd)) big = or(big, open(and(smooth(bd, w, h, sig), sil), w, h, r)); }
     // linky mezi barvami: každá plocha jiné barvy (i černá díra) dostane dřevěné ohraničení
     let sep = new Uint8Array(N);
     if ((opt.sepLine == null ? 1.5 : opt.sepLine) > 0) {
       const Lc = new Int16Array(N);
       for (let i = 0; i < N; i++) Lc[i] = L[i] < 0 ? (EX ? 101 : -2) : roles[L[i]] === "outline" ? (big[i] ? 100 : -1) : L[i];
-      if (EX) for (let i = 0; i < N; i++) if (LD.line[i]) Lc[i] = -1;
+      // u kresby je černá díra samostatná "barva": vedle natřené plochy bez čáry dostane dřevěnou linku
+      if (EX) for (let i = 0; i < N; i++) if (big[i]) Lc[i] = 100; else if (LD.line[i]) Lc[i] = -1;
       const b = new Uint8Array(N);
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
         const i = y * w + x, a = Lc[i];
@@ -593,22 +697,27 @@
       const half = Math.max(r, Math.round(px(opt.sepLine == null ? 1.5 : opt.sepLine) / 2));
       const blackLine = new Uint8Array(N);
       for (let i = 0; i < N; i++) blackLine[i] = Lc[i] === -1 ? 1 : 0;
-      if (any(blackLine)) {
-        const dB = edt(blackLine, w, h, false).d, lim = (half + 2) * (half + 2);
-        for (let i = 0; i < N; i++) if (b[i] && dB[i] <= lim) b[i] = 0;   // tady barvy už odděluje černá čára
-      }
+      const dB = any(blackLine) ? edt(blackLine, w, h, false).d : null, limB = (half + 2) * (half + 2);
+      if (dB) for (let i = 0; i < N; i++) if (b[i] && dB[i] <= limB) b[i] = 0;   // tady barvy už odděluje černá čára
       if (EX) for (let i = 0; i < N; i++) if (Lc[i] === 101) b[i] = 0;   // na straně pozadí nic
       if (EX) { // obrys proti pozadí plnou šířkou dovnitř
-        const bo = new Uint8Array(N);
-        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = y * w + x; if (b[i] && ((x + 1 < w && Lc[i + 1] === 101) || (x > 0 && Lc[i - 1] === 101) || (y + 1 < h && Lc[i + w] === 101) || (y > 0 && Lc[i - w] === 101))) bo[i] = 1; }
+        const bo = new Uint8Array(N);   // všechny strany, nejen pravá a dolní
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          const i = y * w + x, a = Lc[i];
+          if (a < 0 || a === 101 || (a !== 100 && dB && dB[i] <= limB)) continue;
+          if ((x + 1 < w && Lc[i + 1] === 101) || (x > 0 && Lc[i - 1] === 101) || (y + 1 < h && Lc[i + w] === 101) || (y > 0 && Lc[i - w] === 101)) bo[i] = 1;
+        }
+        const boH = new Uint8Array(N);   // černá plocha na kraji postavy: širší dřevěný okraj, ať silueta nesplyne s deskou
+        for (let i = 0; i < N; i++) if (bo[i] && Lc[i] === 100) { boH[i] = 1; bo[i] = 0; }
         sep = or(sep, and(smooth(dilate(bo, w, h, 2 * half), w, h, Math.max(1, px(0.35))), sil));
+        if (any(boH)) sep = or(sep, and(smooth(dilate(boH, w, h, Math.max(2 * half, rimPx)), w, h, Math.max(1, px(0.35))), sil));
       }
       sep = or(sep, and(smooth(dilate(b, w, h, half), w, h, Math.max(1, px(0.35))), sil));   // dělicí linka hladce, ne po pixelech
       big = open(andNot(big, sep), w, h, r);
     }
     { // barvy v roli Černá (deska): díra až na desku, kromě dělicích linek a okraje
       const bd = isRole("board");
-      if (any(bd)) big = or(big, open(andNot(andNot(and(smooth(bd, w, h, sig), sil), sep), rim), w, h, r));
+      if (any(bd) && !EX) big = or(big, open(andNot(andNot(and(smooth(bd, w, h, sig), sil), sep), rim), w, h, r));
     }
     if (!EX) { const C = label(big, w, h), lim = (opt.minHole == null ? 2 + (opt.smooth == null ? 3 : opt.smooth) : opt.minHole) * 2 / (mm * mm);
       for (let i = 0; i < N; i++) if (C.lab[i] && C.sizes[C.lab[i]] < lim) big[i] = 0; }
@@ -658,6 +767,27 @@
     // nejkratší cestou uvnitř siluety; tím drží pohromadě každá vrstva a nic se nelepí
     // dělicí kroužky kolem ploch uvnitř jedné barvy (kamínky v hromádce): když jsou obě strany
     // ve stejné natírané vrstvě, kroužek není potřeba (hranici ukáže barevná linka) a nemusí se mostit
+    if (EX) {
+      // volně ležící tah (prst v rukavici, zahnutí pusy) nedrží s ostatními linkami: místo mostu štěrbina skrz na desku,
+      // jako černá čára v předloze. Jen když nic neuzavírá (jinak by kus vrstvy vypadl).
+      const C = label(or(top, and(ring, rect)), w, h);
+      let main = 0;
+      for (let i = 0; i < N; i++) if (ring[i] && C.lab[i]) { main = C.lab[i]; break; }
+      const lim = 60 / (mm * mm), conv = new Uint8Array(C.n + 1);
+      for (let q = 1; q <= C.n; q++) if (q !== main && C.sizes[q] <= lim) conv[q] = 1;
+      if (conv.some((v) => v)) {
+        const cm = new Uint8Array(N);
+        for (let i = 0; i < N; i++) if (conv[C.lab[i]] && C.lab[i]) cm[i] = 1;
+        // uzavřené tahy vynechat: co je obklopené tahem a není díra, by vypadlo
+        const outside = new Uint8Array(N), st = [];
+        for (let x = 0; x < w; x++) st.push(x, (h - 1) * w + x);
+        for (let y = 0; y < h; y++) st.push(y * w, y * w + w - 1);
+        while (st.length) { const i = st.pop(); if (outside[i] || cm[i]) continue; outside[i] = 1; const x = i % w; if (x > 0) st.push(i - 1); if (x < w - 1) st.push(i + 1); if (i >= w) st.push(i - w); if (i + w < N) st.push(i + w); }
+        const encl = new Float64Array(C.n + 1), own = edt(cm, w, h, true).idx;
+        for (let i = 0; i < N; i++) if (!outside[i] && !cm[i] && !big[i]) encl[C.lab[own[i]]]++;
+        for (let i = 0; i < N; i++) { const q = C.lab[i]; if (q && conv[q] && encl[q] * mm * mm <= 2) { top[i] = 0; if (sil[i]) { big[i] = 1; l2[i] = 0; } } }
+      }
+    }
     if (EX) {
       const C = label(top, w, h);
       let main = 0;
@@ -1032,6 +1162,7 @@
     const mm = (o.widthMm || 300) / Math.max(1, x1 - x0 + 1), px = (v) => v / mm;
     const isOut = (k) => k >= 0 && roles[k] === "outline";
     let outlineIdx = roles.findIndex((r) => r === "outline");
+    const hasOutline = outlineIdx >= 0;   // bez obrysové barvy (Krtek) se žádná barva v políčku nepřepisuje
     if (outlineIdx < 0) outlineIdx = 0;
     // tahy
     let line = new Uint8Array(N);
@@ -1058,34 +1189,45 @@
       dom[c] = b1;
       if (v2 > Math.max(0.12 * C.sizes[c], 4 / (mm * mm))) multi[c] = 1;
     }
-    // černé plochy (díry na desku): silná jádra výrazně větší než jeden kruh, rozšířená na celý silný tvar
-    const r = Math.max(1, Math.round(px(1.2) / 2)), R = Math.max(r + 1, Math.round(px(o.hole || 3) / 2));
-    const core = open(line, W, H, R);
-    { const L2 = label(core, W, H), minA = 1.5 * Math.PI * R * R; for (let i = 0; i < N; i++) if (L2.lab[i] && L2.sizes[L2.lab[i]] < minA) core[i] = 0; }
-    let hole = new Uint8Array(N);
-    if (o.autoHole && any(core)) {
-      const thick = open(line, W, H, Math.max(r, Math.round(R * 0.6)));
-      const L3 = label(thick, W, H), keep = new Uint8Array(L3.n + 1);
-      for (let i = 0; i < N; i++) if (core[i] && L3.lab[i]) keep[L3.lab[i]] = 1;
-      for (let i = 0; i < N; i++) if (L3.lab[i] && keep[L3.lab[i]]) hole[i] = 1;
-      // jen kompaktní tvary (zornice, čumák); protáhlé tahy jsou obrys
-      const L4 = label(hole, W, H), per = new Int32Array(L4.n + 1);
-      for (let i = 0; i < N; i++) {
-        if (!hole[i]) continue;
-        const x = i % W;
-        if (x === 0 || x === W - 1 || i < W || i >= N - W || !hole[i - 1] || !hole[i + 1] || !hole[i - W] || !hole[i + W]) per[L4.lab[i]]++;
+    // černé plochy (díry na desku): místa výrazně silnější než běžný tah kresby (zornice, čumák, uši Mickeyho, tělo Krtka).
+    // Běžné tahy zůstanou dřevěnou linkou, i když jsou silné (Mickey). Tvar díry = sjednocení kruhů, které se do černé vejdou,
+    // takže díra nepoleze po navazujících tazích.
+    const r = Math.max(1, Math.round(px(1.2) / 2));
+    let hole = new Uint8Array(N), strokeMm = 0;
+    if (o.autoHole && any(line)) {
+      const d = edt(not(line), W, H, false).d, vals = [];
+      for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+        const i = y * W + x, v = d[i];
+        if (!line[i] || v < 1) continue;
+        if (v >= d[i - 1] && v >= d[i + 1] && v >= d[i - W] && v >= d[i + W]) vals.push(Math.sqrt(v));
       }
-      // nebo skoro celý silný tvar (vyplněná plocha jako tlama); tah má silné jen malé části
-      const coreCnt = new Int32Array(L4.n + 1);
-      for (let i = 0; i < N; i++) if (core[i] && L4.lab[i]) coreCnt[L4.lab[i]]++;
-      for (let i = 0; i < N; i++) {
-        const q = L4.lab[i];
-        if (!q) continue;
-        const cp = (4 * Math.PI * L4.sizes[q]) / (per[q] * per[q]), cf = coreCnt[q] / L4.sizes[q];
-        if (!(cp >= 0.35 || cf >= 0.7)) hole[i] = 0;
+      vals.sort((p, q) => p - q);
+      const sw = vals.length ? 2 * vals[Math.floor(vals.length / 2)] : 0;   // typická šířka tahu v px
+      strokeMm = sw * mm;
+      const R = Math.max(r + 1, Math.round(px(o.hole || 3) / 2), Math.round(0.8 * sw));
+      const core = open(line, W, H, R);
+      { const L2 = label(core, W, H), minA = 2 * Math.PI * R * R; for (let i = 0; i < N; i++) if (L2.lab[i] && L2.sizes[L2.lab[i]] < minA) core[i] = 0; }
+      if (any(core)) hole = and(dilate(core, W, H, Math.max(1, Math.round(R * 0.35))), line);
+      // ztluštění v uzlu, kde se sbíhá víc tahů, není černá plocha: jeho okraj z velké části navazuje na další tahy.
+      // Zornice, čumák nebo ucho mají okolo hlavně barvu nebo pozadí.
+      if (any(hole)) {   // nejsilnější místo plochy musí být aspoň 2,4× silnější než běžný tah (jinak je to jen silnější kus tahu)
+        const L6 = label(hole, W, H), mx = new Float64Array(L6.n + 1), rin = Math.max(1.2 * sw, px(o.hole || 3) / 2);
+        for (let i = 0; i < N; i++) if (L6.lab[i] && d[i] > mx[L6.lab[i]]) mx[L6.lab[i]] = d[i];
+        // a nesmí to být protáhlý tah (silná linka podrážky): plocha nejvýš ~4 kruhy o největší síle
+        for (let i = 0; i < N; i++) { const q = L6.lab[i]; if (q && (Math.sqrt(mx[q]) < rin || (Math.sqrt(mx[q]) < 2.5 * sw && L6.sizes[q] > 4 * Math.PI * mx[q]))) hole[i] = 0; }
+      }
+      if (any(hole)) {
+        const L5 = label(hole, W, H), toLine = new Int32Array(L5.n + 1), tot = new Int32Array(L5.n + 1);
+        const ring = andNot(dilate(hole, W, H, 1), hole), owner = edt(hole, W, H, true).idx;
+        for (let i = 0; i < N; i++) {
+          if (!ring[i]) continue;
+          const q = L5.lab[owner[i]];
+          tot[q]++; if (line[i]) toLine[q]++;
+        }
+        for (let i = 0; i < N; i++) { const q = L5.lab[i]; if (q && toLine[q] > 0.4 * tot[q]) hole[i] = 0; }
       }
     }
-    return { W, H, mm, line, hole, cells: C.lab, nCells: nC, cellSize: C.sizes, dom, multi, outlineIdx };
+    return { W, H, mm, line, hole, cells: C.lab, nCells: nC, cellSize: C.sizes, dom, multi, outlineIdx, hasOutline, strokeMm };
   }
 
   // složit data pro vrstvy: úpravy uživatele (barva políčka, štětec černá plocha / obrys)
@@ -1102,7 +1244,7 @@
       const c = la.cells[i];
       if (!c) { lab[i] = an.lab[i]; continue; }
       const ov = cellColor ? cellColor.get(c) : undefined;
-      lab[i] = ov !== undefined ? ov : la.multi[c] && an.lab[i] >= 0 && an.lab[i] !== la.outlineIdx ? an.lab[i] : la.dom[c] >= 0 ? la.dom[c] : an.lab[i];
+      lab[i] = ov !== undefined ? ov : la.multi[c] && an.lab[i] >= 0 && (!la.hasOutline || an.lab[i] !== la.outlineIdx) ? an.lab[i] : la.dom[c] >= 0 ? la.dom[c] : an.lab[i];
     }
     return { lab, line: la.line, hole };
   }

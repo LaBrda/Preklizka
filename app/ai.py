@@ -7,6 +7,7 @@ Inference běží v samostatném procesu (viz server.py), tady jsou jen čisté 
 from __future__ import annotations
 
 import hashlib
+import math
 import io
 import os
 import sys
@@ -464,6 +465,45 @@ def _majority(idx: np.ndarray, k: int, r: int) -> np.ndarray:
     return out
 
 
+def _merge_shades(idx: np.ndarray, cent: np.ndarray, fg: np.ndarray):
+    """Sloučit odstíny jedné barvy: osvětlená a stinná červená, šedé odlesky ve skle, skoro stejné barvy.
+    Výsledná barva = barva největší části (nátěr má být čistý, ne kalný průměr)."""
+    k = len(cent)
+    cnt = np.bincount(idx[fg].ravel(), minlength=k).astype(np.float64) if fg.any() else np.bincount(idx.ravel(), minlength=k).astype(np.float64)
+    L = cent[:, 0] * 100 / 255
+    A = cent[:, 1] - 128
+    B = cent[:, 2] - 128
+    C = np.hypot(A, B)
+    hue = np.degrees(np.arctan2(B, A))
+    par = list(range(k))
+
+    def find(x):
+        while par[x] != x:
+            par[x] = par[par[x]]
+            x = par[x]
+        return x
+    pairs = []
+    for i in range(k):
+        for j in range(i + 1, k):
+            de = math.sqrt((L[i] - L[j]) ** 2 + (A[i] - A[j]) ** 2 + (B[i] - B[j]) ** 2)
+            dh = abs((hue[i] - hue[j] + 180) % 360 - 180)
+            same = de < 14
+            same |= C[i] > 25 and C[j] > 25 and dh < 14 and abs(L[i] - L[j]) < 32       # světlá a stinná stejná barva
+            same |= (C[i] < 12 and C[j] < 12 and abs(L[i] - L[j]) < 22 and min(L[i], L[j]) > 18   # šedé (sklo, kov), ne černá
+                     and (max(L[i], L[j]) < 84 or min(L[i], L[j]) >= 84))                       # ani bílá (pruh, nárazník)
+            if same:
+                pairs.append((de, i, j))
+    for _, i, j in sorted(pairs):
+        a, b = find(i), find(j)
+        if a != b:
+            if cnt[a] < cnt[b]:
+                a, b = b, a
+            par[b] = a
+            cnt[a] += cnt[b]
+    root = np.array([find(i) for i in range(k)])
+    return root[idx].astype(np.int32), cent
+
+
 def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bool = True, detail: int = 5) -> np.ndarray:
     import cv2
     from scipy import ndimage as ndi
@@ -489,6 +529,7 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
     crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 40, 0.3)
     _, _, cent = cv2.kmeans(samp, k, None, crit, 4, cv2.KMEANS_PP_CENTERS)
     idx = ((lab[:, None, :] - cent[None]) ** 2).sum(-1).argmin(1).astype(np.int32).reshape(h, w)
+    idx, cent = _merge_shades(idx, cent, fg)
     idx = _majority(idx, k, 2)
     # dílky: malé plochy slučovat se sousedy, dokud jich nezbude cílový počet (posuvník Detail)
     target = 10 + 7 * d                                   # detail 1 -> ~17 ploch, 10 -> ~80
