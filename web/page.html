@@ -482,7 +482,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     if (key !== outlineKey) {
       outlineKey = key;
       if (!erase || erase.length !== an.W * an.H) erase = new Uint8Array(an.W * an.H);
-      la = LaserLayers.lineArt(an, roles, { widthMm: +$("width").value || 300, hole: +$("hole").value || 3, minCell: 0, erase, autoHole: false });
+      la = LaserLayers.lineArt(an, roles, { widthMm: +$("width").value || 300, hole: +$("hole").value || 3, minCell: 0, erase, autoHole: true });
       cellColor = new Map();
       for (const [px, col] of colorClicks) { const c = la.cells[px]; if (c) cellColor.set(c, col); }
     }

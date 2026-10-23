@@ -120,6 +120,62 @@ def open_lines_d(lines):
     return " ".join("M" + " L".join(f"{x:.3f},{y:.3f}" for x, y in l) for l in lines if len(l) >= 2)
 
 
+def bridge_paths(labn, main_id, n, allowed, hole, mm, width):
+    """Cesty (maska) od každého ostrůvku k hlavní síti nejlevnější cestou v hrubší mřížce."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import dijkstra
+    h, w = labn.shape
+    s = max(1, int(math.ceil(max(h, w) / 700)))
+    hs, ws = (h + s - 1) // s, (w + s - 1) // s
+    pad = lambda a: np.pad(a, ((0, hs * s - h), (0, ws * s - w)))
+    net = labn > 0
+    lab_s = pad(labn).reshape(hs, s, ws, s).max(axis=(1, 3))
+    main_s = pad(labn == main_id).reshape(hs, s, ws, s).any(axis=(1, 3))
+    allow_s = pad(allowed).reshape(hs, s, ws, s).mean(axis=(1, 3)) > 0.5
+    hole_s = pad(hole).reshape(hs, s, ws, s).mean(axis=(1, 3)) > 0.5
+    net_s = pad(net).reshape(hs, s, ws, s).any(axis=(1, 3))
+    allow_s |= net_s
+    cost = np.where(net_s, 0.15, np.where(hole_s, 1.0, 3.0)).astype(np.float64)
+    idx = np.arange(hs * ws).reshape(hs, ws)
+    rows, cols, wts = [], [], []
+    for dy, dx in ((0, 1), (1, 0), (1, 1), (1, -1)):
+        y0, y1 = 0, hs - dy
+        x0, x1 = max(0, -dx), ws - max(0, dx)
+        a = (slice(y0, y1), slice(x0, x1))
+        b = (slice(y0 + dy, y1 + dy), slice(x0 + dx, x1 + dx))
+        ok = allow_s[a] & allow_s[b]
+        wgt = (cost[a] + cost[b]) * 0.5 * math.hypot(dy, dx)
+        rows.append(idx[a][ok]); cols.append(idx[b][ok]); wts.append(wgt[ok])
+    rows, cols, wts = np.concatenate(rows), np.concatenate(cols), np.concatenate(wts)
+    g = coo_matrix((np.concatenate([wts, wts]) + 1e-6, (np.concatenate([rows, cols]), np.concatenate([cols, rows]))), shape=(hs * ws, hs * ws)).tocsr()
+    src = idx[main_s]
+    if not len(src):
+        return np.zeros((h, w), bool), 0
+    dist, pred, _ = dijkstra(g, directed=False, indices=src, min_only=True, return_predecessors=True)
+    out = np.zeros((h, w), np.uint8)
+    added = 0
+    dist2 = dist.reshape(hs, ws)
+    for k in range(1, n + 1):
+        if k == main_id:
+            continue
+        m = lab_s == k
+        if not m.any() or (labn == k).sum() * mm * mm < 0.3:
+            continue
+        dd = np.where(m & ~main_s, dist2, np.inf)
+        p = int(np.argmin(dd))
+        if not np.isfinite(dd.flat[p]):
+            continue
+        path = [p]
+        while pred[path[-1]] >= 0 and len(path) < 100000:
+            path.append(int(pred[path[-1]]))
+        pts = np.array([[(q % ws) * s + s // 2, (q // ws) * s + s // 2] for q in path], np.float32)
+        if len(pts) > 2:
+            pts = cv2.approxPolyDP(pts.reshape(-1, 1, 2), max(1.0, s * 0.8), False)[:, 0, :]
+        cv2.polylines(out, [np.round(pts).astype(np.int32)], False, 1, width)
+        added += 1
+    return out.astype(bool), added
+
+
 # ---------------------------------------------------------------- hlavní výpočet
 def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray | None = None, hole: np.ndarray | None = None) -> dict:
     H0, W0 = lab.shape
@@ -228,19 +284,30 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
     # ---- silueta
     sil = drop_small(fg, min_piece_px)
     sil &= rect
-    big = holeU & lineU & sil
+    # díra sahá až k okraji černé plochy (maska díry a maska čar se rozmazávají zvlášť, na hraně by zůstal proužek čáry)
+    big = (dilate(holeU, max(2, int(round(U)))) if holeU.any() else holeU) & lineU & sil
 
     # ---- okraj (jen obrázky bez čar)
     rim = np.zeros_like(sil)
     if not EX and float(opt.get("rim", 3)) > 0:
         rim = sil & ~erode(sil, max(r, int(round(px(float(opt.get("rim", 3)))))))
 
+    # ---- barvy v roli Černá (deska) u kresby: díra jako černá plocha z kresby (dostane okraj a dělicí linky níž)
+    board = np.zeros_like(sil)
+    for c in classes:
+        if c >= 0 and role(c) == "board":
+            board |= Lu == c
+    if EX and board.any():
+        big |= opening(board & sil, r)
+
     # ---- dělicí linky mezi barvami, kde chybí čára
     sep = np.zeros_like(sil)
     if sepw > 0:
         cls = Lu.copy()
         cls[lineU] = -5
-        cls[big] = -6
+        # černá plocha skrz (díra) je u kresby samostatná "barva": kde se dotýká natřené plochy bez čáry
+        # (šedé bříško a černé tělo Krtka), dostane dřevěnou dělicí linku; čára vedle díry linku nedostane
+        cls[big] = 2000 if EX else -6
         edge = np.zeros_like(sil)
         for dy, dx in ((0, 1), (1, 0)):
             a = cls[: h - dy, : w - dx]
@@ -248,22 +315,22 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
             e = (a != b) & (a >= 0) & (b >= 0)
             edge[: h - dy, : w - dx] |= e
         if EX:
-            near_line = dilate(lineU, half + 2)
+            near_line = dilate(lineU & ~big, half + 2)
             edge &= ~near_line
         sep = dilate(edge, half)
         if EX:  # obrys proti pozadí tam, kde čára chybí
             bg = ~fg
             outer = dilate(bg, 1) & fg & ~lineU & ~dilate(lineU, 2)
             sep |= dilate(outer, 2 * half)
+            # černá plocha na kraji postavy (tělo Krtka): dřevěný okraj, ať silueta nesplyne s černou deskou
+            outer_h = dilate(bg, 1) & big
+            if outer_h.any():
+                sep |= dilate(outer_h, max(2 * half, int(round(px(float(opt.get("rim", 3)) or 1.5)))))
         sep = smooth(sep, max(1.0, px(0.25))) & sil
         big &= ~sep
 
     # ---- barvy v roli Černá (deska): díra ve všech vrstvách až na desku
-    board = np.zeros_like(sil)
-    for c in classes:
-        if c >= 0 and role(c) == "board":
-            board |= Lu == c
-    if board.any():
+    if board.any() and not EX:
         big |= opening(board & sil & ~sep & ~rim, r)
     # drobné díry (tečky mezi tahy) zrušit, zůstanou dřevem
     big = drop_small(big, float(opt.get("minHole", 3)) * 2 / (mm * mm))
@@ -284,6 +351,56 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
             small = sizes < float(opt.get("minHole", 3)) / (mm * mm)
             small[0] = False
             top |= small[lab_h]
+    if EX:
+        # volně ležící tahy (prsty v rukavici, zahnutí pusy, kroužek kolem zornice) nedrží s ostatními linkami.
+        # Místo mostu přes plochu z nich bude štěrbina skrz na černou desku, jako černá čára v předloze
+        # (tak to dělá i ručně kreslený Sonic). Jen když tah nic neuzavírá, jinak by kus vrstvy vypadl.
+        net = top | (ring & rect)
+        labn, n = ndi.label(net, structure=np.ones((3, 3)))
+        if n > 1:
+            on_ring = np.unique(labn[ring & net])
+            main_id = on_ring[on_ring > 0][0] if (on_ring > 0).any() else np.bincount(labn.ravel())[1:].argmax() + 1
+            sizes = np.bincount(labn.ravel())
+            lim = float(opt.get("slitMax", 60)) / (mm * mm)
+            conv, holeBig = [], big.copy()
+            for k, sl in enumerate(ndi.find_objects(labn), start=1):
+                if k == main_id or sl is None or sizes[k] > lim:
+                    continue
+                comp = labn[sl] == k
+                filled = ndi.binary_fill_holes(comp)
+                if (filled & ~comp & ~big[sl]).sum() * mm * mm > 2:
+                    continue
+                conv.append((sl, comp))
+                top[sl] &= ~comp
+                big[sl] |= comp & sil[sl]
+            # štěrbiny spolu s dírami nesmí odříznout kus vrstvy; takové vrátit (připojí je most)
+            for _ in range(4):
+                bad = np.zeros_like(sil)
+                for k in range(2, NL):
+                    m = sil & ~big if k == 2 else (opening((levU >= k) & sil & ~big, r) | top)
+                    labk, nk = ndi.label(m | (ring & rect), structure=np.ones((3, 3)))
+                    if nk <= 1:
+                        continue
+                    ids = np.unique(labk[ring & rect])
+                    keep = np.zeros(nk + 1, bool)
+                    keep[ids] = True
+                    keep[0] = True
+                    sz = np.bincount(labk.ravel(), minlength=nk + 1)
+                    keep |= sz < min_piece_px          # drobky se zahodí i tak
+                    bad |= ~keep[labk]
+                if not bad.any():
+                    break
+                near = dilate(bad, 3)
+                rest = []
+                for sl, comp in conv:
+                    if (near[sl] & comp).any():
+                        top[sl] |= comp
+                        big[sl] &= ~comp | holeBig[sl]
+                    else:
+                        rest.append((sl, comp))
+                if len(rest) == len(conv):
+                    break
+                conv = rest
     if opt.get("dropThin"):
         top = opening(top, r) | (rim & top)
     l2 = sil & ~big
@@ -307,36 +424,46 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
         top |= st; l2 |= st; sil |= st; big &= ~st
 
     # ---- spojit ostrůvky horní vrstvy s hlavní sítí
+    # Most vede nejlevnější cestou: po jiných linkách skoro zadarmo, přes černou plochu levně,
+    # přes natřenou plochu draze (most přes barvu nejvíc ruší), nikdy mimo siluetu.
     n_bridges = 0
     net = top | (ring & rect)
     if opt.get("bridges", True):
-        for _ in range(6):
+        for _ in range(4):
             labn, n = ndi.label(net, structure=np.ones((3, 3)))
             if n <= 1:
                 break
             main_id = np.bincount(labn[ring & net].ravel()).argmax() if (ring & net).any() else np.bincount(labn.ravel())[1:].argmax() + 1
-            main = labn == main_id
-            dist, iy, ix = nearest(main)
-            st = np.zeros((h, w), np.uint8)
-            added = 0
-            for k in range(1, n + 1):
-                if k == main_id:
-                    continue
-                comp = labn == k
-                if comp.sum() * mm * mm < 0.3:
-                    continue
-                dd = np.where(comp, dist, np.inf)
-                p = np.unravel_index(np.argmin(dd), dd.shape)
-                if not np.isfinite(dd[p]):
-                    continue
-                q = (iy[p], ix[p])
-                cv2.line(st, (int(p[1]), int(p[0])), (int(q[1]), int(q[0])), 1, max(1, 2 * half))
-                added += 1
+            st, added = bridge_paths(labn, main_id, n, sil | net, big, mm, max(1, 2 * half))
             if not added:
                 break
-            st = st.astype(bool) & sil
-            top |= st; l2 |= st; big &= ~st
+            st = st & (sil | (ring & rect))
+            top |= st; l2 |= st & sil; big &= ~st
             net = top | (ring & rect)
+            n_bridges += added
+        # díly siluety odříznuté dírami (kolo uvnitř černého podběhu, střed disku): drobné zahodit, větší připojit mostem
+        for _ in range(3):
+            base = l2 | (ring & rect)
+            labn, n = ndi.label(base, structure=np.ones((3, 3)))
+            if n <= 1:
+                break
+            main_id = np.bincount(labn[ring & rect].ravel()).argmax()
+            sizes = np.bincount(labn.ravel())
+            small = (sizes < min_piece_px * 3)
+            small[0] = False
+            small[main_id] = False
+            if small.any():
+                drop = small[labn]
+                big |= drop & sil; l2 &= ~drop; top &= ~drop
+                labn, n = ndi.label(l2 | (ring & rect), structure=np.ones((3, 3)))
+                if n <= 1:
+                    break
+                main_id = np.bincount(labn[ring & rect].ravel()).argmax()
+            st, added = bridge_paths(labn, main_id, n, sil, big, mm, max(1, 2 * half))
+            if not added:
+                break
+            st &= sil
+            top |= st; l2 |= st; big &= ~st
             n_bridges += added
 
     # ---- vrstvy
