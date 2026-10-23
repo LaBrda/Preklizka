@@ -142,7 +142,9 @@ def main() -> None:
     multiprocessing.freeze_support()
     quiet_streams()
     if "--selftest" in sys.argv:
-        sys.exit(selftest())
+        code = selftest()
+        sys.stdout.flush()
+        os._exit(code)                                       # knihovny (WebView, DirectML) drží vlákna, nečekat na ně
     os.environ["PREKLIZKA_DESKTOP"] = "1"
     import updater
     threading.Thread(target=updater.cleanup_old, daemon=True).start()
