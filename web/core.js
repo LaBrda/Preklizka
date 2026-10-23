@@ -467,6 +467,19 @@
     // vyřadit prázdné barvy, spočítat plochy
     const area = cent.map(() => 0);
     for (let i = 0; i < lab.length; i++) if (lab[i] >= 0) area[lab[i]]++;
+    // skoro stejné odstíny (tmavší lem, stín) sloučit do větší plochy: dvě modré -> jedna
+    for (;;) {
+      let pa = -1, pb = -1, pd = 1e9;
+      for (let a = 0; a < cent.length; a++) for (let b = 0; b < cent.length; b++) {
+        if (a === b || !area[a] || !area[b] || area[a] > area[b] * 0.6) continue;
+        if (lum(cent[a]) < 60 && lum(cent[b]) < 60) continue;          // černé linky nechat
+        const d = Math.hypot(cent[a][0] - cent[b][0], cent[a][1] - cent[b][1], cent[a][2] - cent[b][2]);
+        if (d < 38 && d < pd) { pd = d; pa = a; pb = b; }
+      }
+      if (pa < 0) break;
+      for (let i = 0; i < lab.length; i++) if (lab[i] === pa) lab[i] = pb;
+      area[pb] += area[pa]; area[pa] = 0;
+    }
     const used = cent.map((_, c) => c).filter((c) => area[c] > 0);
     const remap = new Int8Array(cent.length).fill(-1);
     used.forEach((c, k) => (remap[c] = k));

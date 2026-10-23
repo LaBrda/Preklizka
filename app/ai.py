@@ -90,7 +90,7 @@ def needed(op: str, p: dict, gpu: bool) -> list[str]:
         return ["esrgan-anime.onnx" if (gpu and p.get("quality", "auto") != "fast") or p.get("quality") == "best" else "esrgan-fast.onnx"]
     if op == "cartoon":
         st = p.get("style", "portret")
-        return [] if st == "none" else ["cartoon-krajina.onnx" if st == "krajina" else "cartoon-portret.onnx"]
+        return [] if st in ("none", "poly") else ["cartoon-krajina.onnx" if st == "krajina" else "cartoon-portret.onnx"]
     raise ValueError("Neznámá AI funkce.")
 
 
@@ -434,6 +434,94 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
     return np.dstack([out, a])
 
 
+def lowpoly(rgba: np.ndarray, colors: int = 8, detail: int = 5, lines: bool = True) -> np.ndarray:
+    """Polygonový styl: trojúhelníky (Delaunay) s body hustěji u hran, barvy omezené na pár odstínů."""
+    import cv2
+    H, W = rgba.shape[:2]
+    d = int(np.clip(detail, 1, 10))
+    fg = rgba[..., 3] > 127
+    if fg.all() or not fg.any():
+        fg = np.ones((H, W), bool)
+    rgb = _flatten(rgba)
+    s = min(1.0, 900 / max(H, W))
+    h, w = max(8, round(H * s)), max(8, round(W * s))
+    small = cv2.resize(rgb, (w, h), interpolation=cv2.INTER_AREA)
+    fgs = cv2.resize(fg.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST) > 0
+    g = cv2.cvtColor(cv2.bilateralFilter(small, 7, 40, 7), cv2.COLOR_RGB2GRAY)
+    n_pts = int(120 + 90 * d)                                  # detail 1 -> ~210 bodů, 10 -> ~1000
+    rng = np.random.default_rng(3)
+    pts = []
+    # body hlavně tam, kde je v obrázku hrana (oči, ústa, vlasy), úměrně síle hrany
+    gx = cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3)
+    mag = cv2.GaussianBlur(np.sqrt(gx * gx + gy * gy), (0, 0), 1.0) * fgs
+    mag = mag ** 1.5
+    pr = mag.reshape(-1) / max(float(mag.sum()), 1e-6)
+    if pr.sum() > 0:
+        k = rng.choice(h * w, int(n_pts * 0.6), replace=False, p=pr)
+        pts += np.stack([k % w, k // w], 1).astype(float).tolist()
+    ys, xs = np.nonzero(fgs)                                   # trochu náhodných bodů dovnitř
+    if len(xs):
+        k = rng.choice(len(xs), min(len(xs), int(n_pts * 0.15)), replace=False)
+        pts += np.stack([xs[k], ys[k]], 1).astype(float).tolist()
+    cnts, _ = cv2.findContours(fgs.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    for c in cnts:                                             # body po obrysu postavy (silueta zůstane hladká)
+        c = c.reshape(-1, 2)
+        step = max(3, len(c) // max(8, int(n_pts * 0.3 * len(c) / max(1, sum(len(x) for x in cnts)))))
+        pts += c[::step].astype(float).tolist()
+    pts += [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]]
+    sub = cv2.Subdiv2D((0, 0, w, h))
+    seen = set()
+    for x, y in pts:
+        x, y = float(min(w - 1, max(0, x))), float(min(h - 1, max(0, y)))
+        key = (round(x), round(y))
+        if key in seen:
+            continue
+        seen.add(key)
+        sub.insert((x, y))
+    tris = sub.getTriangleList().reshape(-1, 3, 2)
+    tris = tris[(tris >= 0).all((1, 2)) & (tris[..., 0] < w).all(1) & (tris[..., 1] < h).all(1)]
+    # průměrná barva každého trojúhelníku
+    tid = np.full((h, w), -1, np.int32)
+    for i, t in enumerate(tris):
+        cv2.fillConvexPoly(tid, np.round(t).astype(np.int32), int(i))
+    valid = tid >= 0
+    lab = cv2.cvtColor(small, cv2.COLOR_RGB2LAB).reshape(-1, 3).astype(np.float64)
+    T = len(tris)
+    cntv = np.bincount(tid[valid], minlength=T).astype(np.float64)
+    mean = np.stack([np.bincount(tid[valid], weights=lab[valid.reshape(-1), c], minlength=T) for c in range(3)], 1) / np.maximum(cntv, 1)[:, None]
+    fgt = np.bincount(tid[valid], weights=fgs[valid].astype(np.float64), minlength=T) / np.maximum(cntv, 1)
+    inside = (fgt > 0.5) & (cntv > 0)
+    k = int(np.clip(colors, 2, 24))
+    samp = mean[inside].astype(np.float32)
+    if len(samp) < k:
+        k = max(1, len(samp))
+    crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 40, 0.3)
+    _, lbl, cent = cv2.kmeans(np.repeat(samp, np.maximum(1, (cntv[inside] / 50).astype(int)), axis=0) if len(samp) else samp, k, None, crit, 4, cv2.KMEANS_PP_CENTERS)
+    tcol = ((mean[:, None, :] - cent[None].astype(np.float64)) ** 2).sum(-1).argmin(1)
+    pal = cv2.cvtColor(cent.reshape(1, -1, 3).astype(np.uint8), cv2.COLOR_LAB2RGB).reshape(-1, 3)
+    cls = np.where(valid, tcol[np.maximum(tid, 0)], 0)
+    ins = np.where(valid, inside[np.maximum(tid, 0)], False)
+    # zpět na plné rozlišení: ostré hrany trojúhelníků (nejbližší soused)
+    cls_f = cv2.resize(cls.astype(np.uint16), (W, H), interpolation=cv2.INTER_NEAREST).astype(np.int32)
+    ins_f = cv2.resize(ins.astype(np.uint8), (W, H), interpolation=cv2.INTER_NEAREST) > 0
+    out = pal[cls_f]
+    if lines:
+        t = max(2, round(max(H, W) / 420))
+        edge = np.zeros((H, W), bool)
+        edge[:, 1:] |= (cls_f[:, 1:] != cls_f[:, :-1]) | (ins_f[:, 1:] != ins_f[:, :-1])
+        edge[1:, :] |= (cls_f[1:, :] != cls_f[:-1, :]) | (ins_f[1:, :] != ins_f[:-1, :])
+        edge = cv2.dilate(edge.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (t, t))) > 0
+        n, cc, st, _ = cv2.connectedComponentsWithStats((ins_f & ~edge).astype(np.uint8), connectivity=4)
+        tiny = np.zeros(n, bool)
+        tiny[1:] = st[1:, cv2.CC_STAT_AREA] < H * W * 0.0008
+        edge |= tiny[cc]
+        out[edge] = (22, 20, 24)
+        ins_f = ins_f | (edge & cv2.dilate(ins_f.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool))
+    a = np.where(ins_f, 255, 0).astype(np.uint8)
+    return np.dstack([out, a])
+
+
 def run(op: str, png: bytes, p: dict) -> bytes:
     """Vstupní bod pro pracovní proces."""
     img = decode(png)
@@ -446,6 +534,8 @@ def run(op: str, png: bytes, p: dict) -> bytes:
         res = select(img, pts, p.get("box"))
     elif op == "upscale":
         res = upscale(img, p.get("quality", "auto"))
+    elif op == "cartoon" and p.get("style") == "poly":
+        res = lowpoly(img, int(p.get("colors", 8)), int(p.get("detail", 5)), bool(p.get("lines", True)))
     elif op == "cartoon":
         res = cartoon(img, p.get("style", "portret"), int(p.get("colors", 8)), bool(p.get("lines", True)), int(p.get("detail", 5)))
     else:
