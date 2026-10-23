@@ -13,12 +13,8 @@ server ve vyšším rozlišení (hladké řezy). Bez serveru se počítá přím
    apt update && apt install -y curl git
    curl -fsSL https://get.docker.com | sh
    ```
-3. **Přihlášení k GitHubu** (repozitář i obraz jsou soukromé). Na GitHubu vytvoř token:
-   *Settings → Developer settings → Personal access tokens → Tokens (classic)*, oprávnění jen
-   `read:packages`. Pak:
-   ```sh
-   docker login ghcr.io -u LaBrda      # jako heslo vlož token
-   ```
+3. **Přístup k obrazu.** Obraz `ghcr.io/labrda/preklizka` je veřejný, nic se nepřihlašuje.
+   (Kdyby byl soukromý: token s oprávněním `read:packages` a `docker login ghcr.io -u LaBrda`.)
 4. **Appka.**
    ```sh
    mkdir -p /opt/vrstvy && cd /opt/vrstvy
@@ -27,7 +23,7 @@ server ve vyšším rozlišení (hladké řezy). Bez serveru se počítá přím
    echo "UPDATE_PASSWORD=" >> .env      # volitelně heslo pro tlačítko Aktualizovat
    docker compose up -d
    ```
-   (Soukromý repozitář: `docker-compose.yml` zkopíruj z GitHubu ručně, `curl` bez tokenu nedosáhne.)
+   (Je-li repozitář soukromý, `docker-compose.yml` zkopíruj z GitHubu ručně, `curl` bez tokenu nedosáhne.)
 5. Otevři `http://<IP kontejneru>:8080`. Vpravo nahoře uvidíš verzi serveru a tlačítko **Aktualizovat**.
 
 ## Aktualizace

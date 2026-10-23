@@ -1,5 +1,5 @@
 # Překližkové vrstvy – appka + Watchtower (tlačítko Aktualizovat)
-# Před prvním spuštěním: soubor .env (viz .env.example) a jednorázově `docker login ghcr.io` (viz README).
+# Před prvním spuštěním: soubor .env (viz .env.example).
 services:
   vrstvy:
     image: ghcr.io/labrda/preklizka:latest
@@ -29,7 +29,6 @@ services:
       WATCHTOWER_HTTP_API_TOKEN: ${WATCHTOWER_TOKEN}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /root/.docker/config.json:/config.json:ro
     deploy:
       resources:
         limits:
