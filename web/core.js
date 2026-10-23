@@ -253,7 +253,16 @@
       for (const [k2, n2] of cnt) if (n2 > bestN) { bestN = n2; bestK = k2; }
       const ref = [((bestK >> 10) & 31) * 8 + 4, ((bestK >> 5) & 31) * 8 + 4, (bestK & 31) * 8 + 4];
       const seeds = bandPx.filter((i) => near(i, ref));
-      flood(seeds, (i) => near(i, ref), back);
+      // Pozadí se nesmí protéct do postavy malými mezerami v obrysu (bílá rukavice na bílém pozadí).
+      // Bariéra = všechno, co není barvy pozadí, rozšířené o pár pixelů; zaplavuje se jen mimo ni.
+      const notBg = new Uint8Array(N);
+      for (let i = 0; i < N; i++) notBg[i] = transparentPx(i) || near(i, ref) ? 0 : 1;
+      const gapR = Math.max(2, Math.round(Math.max(W, H) / 400));
+      const barrier = dilate(notBg, W, H, gapR);
+      flood(seeds.filter((i) => !barrier[i]), (i) => near(i, ref) && !barrier[i], back);
+      // dorovnat pozadí až k postavě (pás, který zabrala bariéra), ale jen tam, kam se dosáhne zvenku
+      { const d = edt(back, W, H, false).d, lim = (gapR + 1) * (gapR + 1);
+        for (let i = 0; i < N; i++) if (!back[i] && near(i, ref) && d[i] <= lim) back[i] = 1; }
       // tenký rámeček obrázku u okraje (jiná barva než pozadí) taky patří k pozadí
       for (const i of bandPx) back[i] = 1;
     }

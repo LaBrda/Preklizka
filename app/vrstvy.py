@@ -414,7 +414,7 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
     svg = combined_svg(wmm, hmm, sheets)
 
     # ---- náhledy vrstev (2x původní rozlišení)
-    ps = max(1, U // 2) if U > 1 else 1
+    ps = max(1, int(math.ceil(max(w, h) / 1600)))   # náhled nejvýš ~1600 px, ať se prohlížeč neseká
     pw, ph = w // ps, h // ps
     previews = []
     for k in range(NL):
