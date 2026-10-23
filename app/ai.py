@@ -363,19 +363,28 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
     _, _, cent = cv2.kmeans(samp, k, None, crit, 4, cv2.KMEANS_PP_CENTERS)
     idx = ((lab[:, None, :] - cent[None]) ** 2).sum(-1).argmin(1).astype(np.int32).reshape(h, w)
     idx = _majority(idx, k, 2)
-    # malé skvrny sloučit se sousedem
-    min_area = max(12, int(h * w * (0.0002 + 0.0012 * (10 - d) / 9)))
-    for _ in range(2):
+    # dílky: malé plochy slučovat se sousedy, dokud jich nezbude cílový počet (posuvník Detail)
+    target = 10 + 7 * d                                   # detail 1 -> ~17 ploch, 10 -> ~80
+    min_area = max(12, int(h * w * 0.0004))
+    for _ in range(14):
+        comps = []
         bad = np.zeros((h, w), bool)
+        total = 0
         for c in range(k):
-            n, cc, st, _ = cv2.connectedComponentsWithStats((idx == c).astype(np.uint8), connectivity=4)
+            n, cc, st, _ = cv2.connectedComponentsWithStats(((idx == c) & fg).astype(np.uint8), connectivity=4)
+            total += n - 1
             sm_ = np.zeros(n, bool)
             sm_[1:] = st[1:, cv2.CC_STAT_AREA] < min_area
             bad |= sm_[cc]
-        if not bad.any() or bad.all():
+        if total <= target and not bad.any():
             break
-        _, (iy, ix) = ndi.distance_transform_edt(bad, return_indices=True)
-        idx = idx[iy, ix]
+        if bad.any() and not (bad | ~fg).all():
+            _, (iy, ix) = ndi.distance_transform_edt(bad | ~fg, return_indices=True)
+            nidx = idx[iy, ix]
+            idx = np.where(bad, nidx, idx)
+        if total <= target:
+            break
+        min_area = int(min_area * 1.6)
     # zpět na plné rozlišení s hladkými hranicemi (každá barva rozmazaná, vyhrává nejsilnější)
     sig = max(1.0, 1.2 / s)
     best = np.full((H, W), -1.0, np.float32)
@@ -401,7 +410,7 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
         dark = cv2.morphologyEx(dark.astype(np.uint8), cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
         n, cc, st, _ = cv2.connectedComponentsWithStats(dark, connectivity=8)
         keep = np.zeros(n, bool)
-        keep[1:] = st[1:, cv2.CC_STAT_AREA] >= max(10, h * w * 0.00008)
+        keep[1:] = st[1:, cv2.CC_STAT_AREA] >= max(14, h * w * (0.0005 - 0.00004 * d))
         dark = keep[cc].astype(np.float32)
         dark = cv2.GaussianBlur(cv2.resize(dark, (W, H), interpolation=cv2.INTER_LINEAR), (0, 0), sig) > 0.45
         t = max(2, round(max(H, W) / 420))
@@ -414,6 +423,11 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
         edge = (edge & fgF) | fe
         edge = cv2.dilate(edge.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (t, t))) > 0
         edge |= dark & fgF
+        # drobné plošky uzavřené linkami zalít linkou (jinak z nich jsou mini dílky)
+        n, cc, st, _ = cv2.connectedComponentsWithStats((fgF & ~edge).astype(np.uint8), connectivity=4)
+        tiny = np.zeros(n, bool)
+        tiny[1:] = st[1:, cv2.CC_STAT_AREA] < H * W * (0.0012 - 0.0001 * d)
+        edge |= tiny[cc]
         out[edge] = (22, 20, 24)
         fgF = fgF | edge
     a = np.where(fgF, 255, 0).astype(np.uint8)

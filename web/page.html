@@ -56,6 +56,13 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
 .sw { width: 28px; height: 28px; border-radius: 5px; border: 1px solid var(--line); cursor: pointer; position: relative; overflow: hidden; }
 .sw:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
 .swin { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; border: 0; padding: 0; }
+.crow { grid-template-columns: 28px minmax(0, 1fr) auto auto !important; }
+.cx { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 5px; width: 24px; height: 24px; cursor: pointer; font: 600 .95rem/1 var(--body); padding: 0; }
+.cx:hover { color: var(--accent); border-color: var(--accent); }
+.mrow { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; font-size: .8rem; color: var(--muted); padding: 2px 0 6px 38px; }
+.msw { width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--line); cursor: pointer; padding: 0; }
+.msw:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.btn.mini { padding: 3px 7px; font-size: .78rem; }
 .cinfo { font: 400 .78rem var(--mono); color: var(--muted); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .seg button { font: 500 .8rem var(--body); border: 0; background: transparent; color: var(--muted); padding: 5px 8px; cursor: pointer; }
@@ -164,7 +171,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       <div class="fields">
         <div class="f"><label for="aiStyle">Styl</label><div class="in"><select id="aiStyle"><option value="portret" selected>portrét</option><option value="krajina">scéna, celá postava</option><option value="none">jen zjednodušit</option></select></div></div>
         <div class="f"><label for="aiColors">Barvy</label><div class="in"><input id="aiColors" type="number" min="2" max="24" step="1" value="8"></div></div>
-        <div class="f"><label for="aiDetail">Detail</label><div class="in"><input id="aiDetail" type="range" min="1" max="10" value="6" style="accent-color:var(--accent)"></div></div>
+        <div class="f"><label for="aiDetail" title="Vlevo méně dílků, vpravo víc detailů">Detail (dílky)</label><div class="in"><input id="aiDetail" type="range" min="1" max="10" value="4" style="accent-color:var(--accent)"></div></div>
         <label class="check" style="align-self:end"><input type="checkbox" id="aiLines" checked> Obrysy</label>
       </div>
       <div class="dl">
@@ -604,10 +611,10 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       // klik na barvu otevře paletu: změní barvu nátěru v náhledu, v linkách i v SVG
       const sw = document.createElement("label"); sw.className = "sw"; sw.style.background = hex(c); sw.title = "Změnit barvu";
       const ci = document.createElement("input"); ci.type = "color"; ci.value = hex(c); ci.className = "swin"; ci.setAttribute("aria-label", "Změnit barvu " + hex(c));
-      ci.addEventListener("input", () => { an.cent[k] = [1, 3, 5].map((o) => parseInt(ci.value.substr(o, 2), 16)); sw.style.background = ci.value; info.textContent = `${ci.value} ${Math.round(100 * an.areas[k] / total)}\u00a0%`; drawPalette(); drawLines(); });
+      ci.addEventListener("input", () => { an.cent[k] = [1, 3, 5].map((o) => parseInt(ci.value.substr(o, 2), 16)); sw.style.background = ci.value; info.title = ci.value; drawPalette(); drawLines(); });
       ci.addEventListener("change", () => { drawColors(); rebuild(); });
       sw.appendChild(ci);
-      const info = document.createElement("div"); info.className = "cinfo"; info.textContent = `${hex(c)} ${Math.round(100 * an.areas[k] / total)}\u00a0%`;
+      const info = document.createElement("div"); info.className = "cinfo"; info.textContent = `${Math.round(100 * an.areas[k] / total)}\u00a0%`; info.title = hex(c);
       const seg = document.createElement("div"); seg.className = "seg"; seg.setAttribute("role", "group"); seg.setAttribute("aria-label", "Role barvy " + hex(c));
       const opts_ = ["board", "outline"]; for (let k = 2; k < NL(); k++) opts_.push(k); opts_.push("wood");
       if (typeof roles[k] === "number") roles[k] = Math.min(roles[k], NL() - 1);
@@ -619,8 +626,40 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
         b.onclick = () => { roles[k] = r; seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false")); rebuild(); };
         seg.appendChild(b);
       });
-      row.append(sw, info, seg); box.appendChild(row);
+      const x = document.createElement("button"); x.type = "button"; x.className = "cx"; x.textContent = "×"; x.title = "Odebrat nebo sloučit s jinou barvou";
+      x.setAttribute("aria-label", "Odebrat nebo sloučit barvu " + hex(c));
+      const mrow = document.createElement("div"); mrow.className = "mrow"; mrow.hidden = true;
+      if (an.cent.length > 1) {
+        const t = document.createElement("span"); t.textContent = "Sloučit s:"; mrow.appendChild(t);
+        an.cent.forEach((c2, j) => {
+          if (j === k) return;
+          const b = document.createElement("button"); b.type = "button"; b.className = "msw"; b.style.background = hex(c2); b.title = "Sloučit s " + hex(c2);
+          b.setAttribute("aria-label", "Sloučit s " + hex(c2)); b.onclick = () => mergeColor(k, j); mrow.appendChild(b);
+        });
+        const nb = document.createElement("button"); nb.type = "button"; nb.className = "btn mini"; nb.textContent = "nejpodobnější"; nb.onclick = () => mergeColor(k, nearestColor(k)); mrow.appendChild(nb);
+      }
+      x.onclick = () => { mrow.hidden = !mrow.hidden; };
+      if (an.cent.length < 2) x.disabled = true;
+      row.append(sw, info, seg, x); box.appendChild(row); box.appendChild(mrow);
     });
+  }
+  function nearestColor(k) {
+    let best = -1, bd = 1e18;
+    an.cent.forEach((c, j) => { if (j === k) return; const d = c.reduce((a, v, i) => a + (v - an.cent[k][i]) ** 2, 0); if (d < bd) { bd = d; best = j; } });
+    return best;
+  }
+  // sloučit barvu k do j: plochy přejdou na j, barva k zmizí ze seznamu
+  function mergeColor(k, j) {
+    if (j < 0 || j === k) return;
+    const L = an.lab;
+    for (let i = 0; i < L.length; i++) { const v = L[i]; if (v === k) L[i] = j > k ? j - 1 : j; else if (v > k) L[i] = v - 1; }
+    an.areas[j] += an.areas[k];
+    an.areas = Array.from(an.areas);
+    [an.cent, an.areas, an.roles, an.whiteish, roles].forEach((a) => a.splice(k, 1));
+    cellColor = new Map(); colorClicks = []; outlineKey = "";
+    computeLA(); drawColors(); drawPalette(); if (view === "lines") drawLines();
+    $("msg").textContent = "Barvy sloučeny.";
+    rebuild();
   }
 
   let uiLayers = 0;
