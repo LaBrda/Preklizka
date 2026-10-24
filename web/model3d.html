@@ -40,9 +40,11 @@ h2{font-family:var(--display);font-size:13px;font-weight:700;text-transform:uppe
 .drops{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .drop{position:relative;border:1px dashed var(--line);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px;cursor:pointer;min-width:0}
 .drop input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
-.drop .lbl{font-size:12px;font-weight:600}
+.drop .lbl{font-size:12px;font-weight:600;padding-right:24px}
 .drop .lbl small{font-weight:400;color:var(--muted)}
 .drop canvas{width:100%;height:56px;object-fit:contain;background:var(--bg);border-radius:4px}
+.drop .flip{all:unset;position:absolute;z-index:2;top:4px;right:4px;width:22px;height:22px;line-height:22px;text-align:center;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--muted);cursor:pointer;font-size:13px}
+.drop .flip:hover{color:var(--fg);border-color:var(--accent)}
 .scan{display:flex;flex-direction:column;gap:10px}
 .scan .drop canvas{display:none}
 .scan .drop{padding:14px}
@@ -99,10 +101,13 @@ details summary{cursor:pointer;font-size:13px;font-weight:600}
       </div>
 
       <div id="photoIn" class="drops">
-        <label class="drop"><span class="lbl">Bok <small>čelem doleva</small></span><canvas id="cSide" width="160" height="56"></canvas><input id="fSide" type="file" accept="image/*"></label>
-        <label class="drop"><span class="lbl">Předek</span><canvas id="cFront" width="160" height="56"></canvas><input id="fFront" type="file" accept="image/*"></label>
-        <label class="drop"><span class="lbl">Shora <small>volitelné</small></span><canvas id="cTop" width="160" height="56"></canvas><input id="fTop" type="file" accept="image/*"></label>
+        <label class="drop"><span class="lbl">Bok <small>čelem doleva</small></span><canvas id="cSide" width="160" height="56"></canvas><input id="fSide" type="file" accept="image/*"><button class="flip" type="button" data-k="side" title="Zrcadlit (fotka je otočená obráceně)">⇆</button></label>
+        <label class="drop"><span class="lbl">Bok <small>čelem doprava</small></span><canvas id="cSideR" width="160" height="56"></canvas><input id="fSideR" type="file" accept="image/*"><button class="flip" type="button" data-k="sideR" title="Zrcadlit (fotka je otočená obráceně)">⇆</button></label>
+        <label class="drop"><span class="lbl">Předek</span><canvas id="cFront" width="160" height="56"></canvas><input id="fFront" type="file" accept="image/*"><button class="flip" type="button" data-k="front" title="Zrcadlit">⇆</button></label>
+        <label class="drop"><span class="lbl">Zadek <small>volitelné</small></span><canvas id="cRear" width="160" height="56"></canvas><input id="fRear" type="file" accept="image/*"><button class="flip" type="button" data-k="rear" title="Zrcadlit">⇆</button></label>
+        <label class="drop"><span class="lbl">Shora <small>volitelné</small></span><canvas id="cTop" width="160" height="56"></canvas><input id="fTop" type="file" accept="image/*"><button class="flip" type="button" data-k="top" title="Zrcadlit">⇆</button></label>
       </div>
+      <p class="hint" id="viewHint" style="margin:0">Stačí jeden bok a předek nebo zadek. Každý další pohled tvar zpřesní, bok zprava dá gravír i na pravou stranu. Fotky musí být přesně z boku, zepředu a zezadu, ne šikmo.</p>
 
       <div id="scanIn" class="scan" hidden>
         <label class="drop"><span class="lbl" id="scanName">Vyber sken <small>OBJ, STL, GLB nebo PLY</small></span><canvas></canvas><input id="fScan" type="file" accept=".obj,.stl,.glb,.ply"></label>
@@ -475,7 +480,7 @@ function buildParts(layers, nx, nz, P) {
     const sideA = k => { for (let i = 0; i < half; i++) if (layers[i][k]) return ok(i, k); return -1; };
     const sideB = k => { for (let i = n - 1; i >= half; i--) if (layers[i][k]) return ok(i, k); return -1; };
     for (const f of n > 1 ? [sideA, sideB] : [sideA])
-      for (const { key, pts } of edgeLines(P.gray, inside, nx, nz, res, P.detail, f)) {
+      for (const { key, pts } of edgeLines(f === sideB && P.grayB ? P.grayB : P.gray, inside, nx, nz, res, P.detail, f)) {
         // čáry uvnitř kol vynechat (kolo je samostatný díl a zakryje je)
         if ((P.wheelsG || []).some(w => pts.filter(([x, y]) => (x / res - w.x) ** 2 + (y / res - w.z) ** 2 < (w.r * 1.08) ** 2).length > pts.length / 2)) continue;
         (details[key] = details[key] || []).push(pts);
@@ -588,6 +593,15 @@ function drawableToSil(src) {
   for (let y = 0; y < s.h; y++) for (let x = 0; x < s.w; x++) { const i = ((y + s.y0) * w + x + s.x0) * 4; s.gray[y * s.w + x] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; }
   return s;
 }
+/* zrcadlová silueta (bok zprava a zadek se převádí do pohledu boku zleva a předku) */
+function flipSil(s) {
+  if (!s) return s;
+  const w = s.w, h = s.h, m = new Uint8Array(w * h), g = s.gray ? new Uint8Array(w * h) : null;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { m[y * w + x] = s.m[y * w + w - 1 - x]; if (g) g[y * w + x] = s.gray[y * w + w - 1 - x]; }
+  let c = s.canvas, x0 = s.x0;
+  if (c) { const o = document.createElement("canvas"); o.width = c.width; o.height = c.height; const x = o.getContext("2d"); x.translate(c.width, 0); x.scale(-1, 1); x.drawImage(c, 0, 0); x0 = c.width - (s.x0 + w); c = o; }
+  return { ...s, m, gray: g, canvas: c, x0, flipped: !s.flipped };
+}
 function thumb(canvasEl, s) {
   const ctx = canvasEl.getContext("2d"), W = canvasEl.width, H = canvasEl.height; ctx.clearRect(0, 0, W, H);
   if (!s) return; const c = maskToCanvas(s.m, s.w, s.h, [120, 100, 70, 255], [0, 0, 0, 0]), k = Math.min(W / s.w, H / s.h) * 0.92;
@@ -684,13 +698,17 @@ async function compute() {
     setStatus("Počítám vrstvy…"); await tick();
     let layers, nx, nz, W, H, silFigs = [];
     if (state.mode === "photo") {
-      if (!state.side || !state.front) throw new Error("Nahraj aspoň fotku z boku a zepředu.");
-      const S0 = state.side, F0 = state.front, T0 = state.top;
+      const SL = state.side, SR = state.sideR, FR = state.front, RR = state.rear, T0 = state.top;
+      if (!(SL || SR) || !(FR || RR)) throw new Error("Nahraj aspoň jeden bok a předek nebo zadek.");
+      const S0 = SL || SR, F0 = FR || RR;
       H = P.L * S0.h / S0.w; W = H * F0.w / F0.h;
       nx = Math.round(P.L / P.res); nz = Math.round(H / P.res); const ny = Math.max(1, Math.round(W / P.res));
+      const and = (a, b) => { for (let k = 0; k < a.length; k++) a[k] &= b[k]; return a; };
       const S = fitMask(S0, nx, nz), F = fitMask(F0, ny, nz), T = T0 ? fitMask(T0, nx, ny) : new Uint8Array(nx * ny).fill(1);
-      if (P.detail > 0) P.gray = fitGray(S0, nx, nz);
-      silFigs = [["Bok", S, nx, nz], ["Předek", F, ny, nz], ...(T0 ? [["Shora", T, nx, ny]] : [])];
+      if (SL && SR) and(S, fitMask(SR, nx, nz));          // tvar = průnik všech pohledů
+      if (FR && RR) and(F, fitMask(RR, ny, nz));
+      if (P.detail > 0) { P.gray = fitGray(S0, nx, nz); if (SL && SR) P.grayB = fitGray(SR, nx, nz); }
+      silFigs = [["Bok", S, nx, nz], [FR && RR ? "Předek + zadek" : FR ? "Předek" : "Zadek", F, ny, nz], ...(T0 ? [["Shora", T, nx, ny]] : [])];
       const n = Math.max(1, Math.round(W / P.t)); layers = [];
       for (let i = 0; i < n; i++) {
         const yi = Math.min(ny - 1, Math.floor((i + 0.5) * ny / n)), m = new Uint8Array(nx * nz);
@@ -743,7 +761,7 @@ async function compute() {
       silFigs = [["Boční pohled na vrstvy", u, nx, nz]];
     }
     setStatus(`Vrstev: ${layers.length}. Hledám kolíky, dutiny a obrysy…`); await tick();
-    const { parts, dowels, details } = buildParts(layers, nx, nz, P); delete P.gray;
+    const { parts, dowels, details } = buildParts(layers, nx, nz, P); delete P.gray; delete P.grayB;
     const usedWheels = state.mode === "photo" ? wheelsG : [];
     if (usedWheels.length) parts.push(...wheelParts(usedWheels, wheelK, P, layers.length));
     if (!parts.length) throw new Error("Nevznikla žádná vrstva. Zkontroluj siluety.");
@@ -808,8 +826,8 @@ function renderSil(figs) {
   const box = $("#sil"); box.innerHTML = "";
   for (const [name, m, w, h] of figs) {
     const f = document.createElement("figure"), c = maskToCanvas(m, w, h, [245, 245, 240, 255], [20, 22, 21, 255]);
-    if (name === "Bok" && state.side) {
-      const S0 = state.side, kx = w / S0.w, kz = h / S0.h, x = c.getContext("2d");
+    if (name === "Bok" && (state.side || state.sideR)) {
+      const S0 = state.side || state.sideR, kx = w / S0.w, kz = h / S0.h, x = c.getContext("2d");
       x.strokeStyle = "#e07a1f"; x.lineWidth = Math.max(2, w / 200);
       for (const wh of state.wheels) { x.beginPath(); x.arc(wh.x * kx, wh.y * kz, wh.r * kx, 0, 7); x.stroke(); }
       c.style.cursor = "crosshair"; c.title = "Klik na kolo = smazat, jinam = přidat kolo";
@@ -886,20 +904,33 @@ function setMode(m) {
 $("#modePhoto").onclick = () => { setMode("photo"); compute(); };
 $("#modeScan").onclick = () => { setMode("scan"); if (state.scan) compute(); else setStatus("Nahraj 3D sken (OBJ, STL, GLB nebo PLY)."); };
 
-for (const [id, key, cv] of [["#fSide", "side", "#cSide"], ["#fFront", "front", "#cFront"], ["#fTop", "top", "#cTop"]]) {
+const SLOTS = [["#fSide", "side", "#cSide"], ["#fSideR", "sideR", "#cSideR"], ["#fFront", "front", "#cFront"], ["#fRear", "rear", "#cRear"], ["#fTop", "top", "#cTop"]];
+const primaryKey = () => state.side ? "side" : state.sideR ? "sideR" : null;
+async function redetectWheels() { const k = primaryKey(); state.wheels = k ? await aiWheels(state[k]) : []; }
+for (const [id, key, cv] of SLOTS) {
   $(id).onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
     try {
       setStatus("Odstraňuji pozadí…"); await tick();
-      if (state.sample) { state.sample = false; state.side = state.front = state.top = null; state.wheels = []; [ "#cSide", "#cFront", "#cTop"].forEach(c => thumb($(c), null)); }
+      if (state.sample) { state.sample = false; for (const [, k, c] of SLOTS) { state[k] = null; thumb($(c), null); } state.wheels = []; }
       let img = await loadImageFile(f);
       if (AI) img = await aiCutout(img);
-      const s = drawableToSil(img); state[key] = s; thumb($(cv), s);
-      if (key === "side") { setStatus("Hledám kola…"); state.wheels = await aiWheels(s); }
-      if (state.side && state.front) compute(); else setStatus("Nahraj ještě " + (!state.side ? "fotku z boku." : "fotku zepředu."));
+      let s = drawableToSil(img);
+      if (key === "sideR" || key === "rear") s = flipSil(s);   // do stejného pohledu jako bok zleva / předek
+      state[key] = s; thumb($(cv), s);
+      if (key === primaryKey()) { setStatus("Hledám kola…"); await redetectWheels(); }
+      if ((state.side || state.sideR) && (state.front || state.rear)) compute();
+      else setStatus("Nahraj ještě " + (!(state.side || state.sideR) ? "fotku z boku." : "fotku zepředu nebo zezadu."));
     } catch (err) { setStatus(err.message || "Fotku se nepodařilo načíst.", true); }
   };
 }
+document.querySelectorAll(".drop .flip").forEach(b => b.onclick = async e => {
+  e.preventDefault(); e.stopPropagation();
+  const k = b.dataset.k; if (!state[k]) return;
+  state[k] = flipSil(state[k]); thumb($(SLOTS.find(x => x[1] === k)[2]), state[k]);
+  if (k === primaryKey()) await redetectWheels();
+  if ((state.side || state.sideR) && (state.front || state.rear)) compute();
+});
 $("#fScan").onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
   try { setStatus("Načítám sken…"); await tick(); state.scan = await loadScan(f);
