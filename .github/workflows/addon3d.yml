@@ -20,6 +20,8 @@ jobs:
         env:
           PREKLIZKA_3D: ${{ runner.temp }}/p3d
           PREKLIZKA_3D_TEST: "1"
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
         run: |
           pip install httpx pillow numpy
           python - <<'EOF'
