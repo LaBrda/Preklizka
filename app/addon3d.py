@@ -18,8 +18,8 @@ from pathlib import Path
 PY_URL = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip"
 PIP_URL = "https://bootstrap.pypa.io/get-pip.py"
 TORCH = ["torch==2.3.1"]
-LIBS = ["numpy<2", "omegaconf==2.3.0", "einops==0.7.0", "transformers==4.35.0", "huggingface-hub==0.23.4",
-        "trimesh==4.0.5", "PyMCubes==0.1.6", "Pillow==10.4.0"]
+LIBS = ["numpy<2", "omegaconf==2.3.0", "einops==0.7.0", "transformers==4.35.0", "huggingface-hub<0.18",
+        "trimesh==4.0.5", "PyMCubes==0.1.4", "Pillow==10.4.0"]
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 _st = {"state": "none", "step": "", "log": "", "gpu": None}
