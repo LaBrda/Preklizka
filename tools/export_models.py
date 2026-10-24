@@ -29,6 +29,10 @@ MIRROR = {
     "sam-encoder.onnx": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/vit_b-encoder-quant.onnx",
     "sam-decoder.onnx": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/vit_b-decoder-quant.onnx",
     "birefnet.onnx": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-general-epoch_244.onnx",
+    # AI 3D doplněk (TripoSR, licence MIT) – zrcadlo, ať doplněk nezávisí na Hugging Face
+    "triposr-model.ckpt": "https://huggingface.co/stabilityai/TripoSR/resolve/main/model.ckpt",
+    "triposr-config.yaml": "https://huggingface.co/stabilityai/TripoSR/resolve/main/config.yaml",
+    "dino-vitb16-config.json": "https://huggingface.co/facebook/dino-vitb16/resolve/main/config.json",
 }
 
 

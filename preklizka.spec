@@ -3,8 +3,8 @@
 from PyInstaller.utils.hooks import collect_dynamic_libs, collect_data_files, collect_submodules
 
 binaries = collect_dynamic_libs('onnxruntime')
-datas = [('web/index.html', 'web'), ('web/3d.html', 'web'), ('VERSION', '.')] + collect_data_files('onnxruntime') + collect_data_files('webview')
-hidden = ['server', 'vrstvy', 'updater', 'ai', 'uvicorn.logging', 'uvicorn.loops.auto', 'uvicorn.protocols.http.auto',
+datas = [('web/index.html', 'web'), ('web/3d.html', 'web'), ('VERSION', '.'), ('addon3d', 'addon3d')] + collect_data_files('onnxruntime') + collect_data_files('webview')
+hidden = ['server', 'vrstvy', 'updater', 'ai', 'addon3d', 'uvicorn.logging', 'uvicorn.loops.auto', 'uvicorn.protocols.http.auto',
           'uvicorn.protocols.websockets.auto', 'uvicorn.lifespan.on', 'clr'] + collect_submodules('webview')
 
 a = Analysis(

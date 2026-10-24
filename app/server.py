@@ -149,6 +149,43 @@ def ai_run(inp: AiIn):
     return {"img": base64.b64encode(out).decode()}
 
 
+class Addon3dIn(BaseModel):
+    img: str
+    resolution: int = 256
+
+
+@app.get("/api/addon3d")
+def addon3d_status():
+    import addon3d
+    if not DESKTOP and not os.environ.get("PREKLIZKA_3D_TEST"):
+        return {"available": False}
+    return addon3d.status()
+
+
+@app.post("/api/addon3d/install")
+def addon3d_install():
+    import addon3d
+    if not DESKTOP and not os.environ.get("PREKLIZKA_3D_TEST"):
+        raise HTTPException(404, "Jen v Preklizka.exe.")
+    return addon3d.start_install()
+
+
+_addon_lock = threading.Lock()
+
+
+@app.post("/api/addon3d/run")
+def addon3d_run(inp: Addon3dIn):
+    import addon3d
+    if not DESKTOP and not os.environ.get("PREKLIZKA_3D_TEST"):
+        raise HTTPException(404, "Jen v Preklizka.exe.")
+    with _addon_lock:
+        try:
+            png = base64.b64decode(inp.img.split(",")[-1])
+            return {"glb": base64.b64encode(addon3d.run(png, max(96, min(384, inp.resolution)))).decode()}
+        except Exception as e:
+            raise HTTPException(500, str(e))
+
+
 class WheelsIn(BaseModel):
     img: str
 
