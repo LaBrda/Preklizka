@@ -1,0 +1,45 @@
+name: AI 3D doplněk – test
+
+on:
+  push:
+    branches: [main]
+    paths: [addon3d/**, app/addon3d.py, .github/workflows/addon3d.yml]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalace doplňku a výroba modelu (procesor)
+        shell: bash
+        env:
+          PREKLIZKA_3D: ${{ runner.temp }}/p3d
+          PREKLIZKA_3D_TEST: "1"
+        run: |
+          pip install httpx pillow numpy
+          python - <<'EOF'
+          import sys, time, json
+          sys.path.insert(0, "app")
+          import addon3d
+          addon3d._install()
+          print(json.dumps(addon3d.status(), ensure_ascii=False))
+          assert addon3d.installed(), addon3d._st
+          from PIL import Image, ImageDraw
+          im = Image.new("RGBA", (800, 400), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
+          d.rectangle((80, 140, 720, 300), fill=(200, 30, 30, 255)); d.rectangle((420, 70, 700, 160), fill=(200, 30, 30, 255))
+          d.rectangle((450, 90, 560, 150), fill=(150, 190, 220, 255))
+          for cx in (220, 600): d.ellipse((cx - 60, 250, cx + 60, 370), fill=(25, 25, 25, 255))
+          im.save("car.png")
+          t = time.time(); glb = addon3d.run(open("car.png", "rb").read(), 160)
+          open("car.glb", "wb").write(glb); print("GLB", len(glb), "bajtů za", round(time.time() - t), "s")
+          assert len(glb) > 10000
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: model
+          path: car.glb
