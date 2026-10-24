@@ -18,14 +18,10 @@ class DINOSingleImageTokenizer(BaseModule):
     cfg: Config
 
     def configure(self) -> None:
-        self.model: ViTModel = ViTModel(
-            ViTModel.config_class.from_pretrained(
-                hf_hub_download(
-                    repo_id=self.cfg.pretrained_model_name_or_path,
-                    filename="config.json",
-                )
-            )
-        )
+        import os
+        p = self.cfg.pretrained_model_name_or_path
+        cfg_path = os.path.join(p, "config.json") if os.path.isdir(p) else hf_hub_download(repo_id=p, filename="config.json")
+        self.model: ViTModel = ViTModel(ViTModel.config_class.from_pretrained(cfg_path))   # Překližka: i z místní složky
 
         if self.cfg.enable_gradient_checkpointing:
             self.model.encoder.gradient_checkpointing = True
