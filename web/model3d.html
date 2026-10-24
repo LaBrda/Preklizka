@@ -118,6 +118,9 @@ details summary{cursor:pointer;font-size:13px;font-weight:600}
           <select id="aiRes"><option value="192">Hrubý (rychlý)</option><option value="256" selected>Střední</option><option value="320">Jemný</option></select></div>
         <div class="f" id="aiUpBox" hidden><label for="aiUp">Osa nahoru (kdyby model ležel na boku)</label>
           <select id="aiUp"><option value="y" selected>Y (výchozí)</option><option value="z">Z</option><option value="-y">−Y</option><option value="-z">−Z</option><option value="x">X</option><option value="-x">−X</option></select></div>
+        <div class="f" id="aiShapeBox" hidden><label for="aiShape">Tvar vrstev</label>
+          <select id="aiShape"><option value="hull" selected>Hladké boky (auta, jako z fotek)</option><option value="mesh">Přesně podle 3D modelu</option></select>
+          <label style="display:flex;align-items:center;gap:8px;color:var(--fg);font-size:14px"><input id="aiSym" type="checkbox" checked style="width:auto"> Souměrně (odvrácený bok podle boku z fotky)</label></div>
       </div>
 
       <div id="scanIn" class="scan" hidden>
@@ -125,6 +128,12 @@ details summary{cursor:pointer;font-size:13px;font-weight:600}
         <div class="f"><label for="up">Osa, která míří nahoru</label>
           <select id="up"><option value="y">Y (skeny z mobilu)</option><option value="z">Z (CAD, 3D tisk)</option><option value="-y">−Y</option><option value="-z">−Z</option><option value="x">X</option><option value="-x">−X</option></select></div>
       </div>
+
+      <div class="f" id="realBox" hidden><label for="pReal">Skutečné rozměry předlohy: délka × šířka × výška (m nebo poměr, prázdné = podle modelu)</label>
+        <input id="pReal" list="realList" placeholder="podle modelu, např. 10 × 2,55 × 3,3" autocomplete="off">
+        <datalist id="realList"><option value="4,5 × 1,8 × 1,5">Osobní auto</option><option value="5 × 2 × 2,5">Dodávka</option><option value="8 × 2,5 × 3,2">Hasiči, dvě nápravy</option>
+          <option value="10 × 2,55 × 3,3">Hasiči / nákladní, tři nápravy</option><option value="12 × 2,55 × 3,1">Autobus</option><option value="4,5 × 2,3 × 3">Traktor</option></datalist>
+        <span class="hint" id="realHint"></span></div>
 
       <div class="fields">
         <div class="f"><label for="pL">Délka modelu (mm)</label><input id="pL" type="number" min="20" step="5" value="200"></div>
@@ -136,7 +145,7 @@ details summary{cursor:pointer;font-size:13px;font-weight:600}
       </div>
       <div class="fields" id="wheelBox">
         <label class="f" style="flex-direction:row;align-items:center;gap:8px;grid-column:1/-1"><input id="pWheels" type="checkbox" checked style="width:auto"> Kola zvlášť (vlastní díly na ose)</label>
-        <div class="f"><label for="pWW">Šířka kola (mm, 0 = podle předku)</label><input id="pWW" type="number" min="0" step="1" value="0"></div>
+        <div class="f"><label for="pWW">Šířka kola (mm, 0 = automaticky)</label><input id="pWW" type="number" min="0" step="1" value="0"></div>
         <label class="f" style="flex-direction:row;align-items:center;gap:8px;align-self:end"><input id="pSpin" type="checkbox" checked style="width:auto"> Kola se točí</label>
         <p class="hint" style="grid-column:1/-1;margin:0" id="wheelHint">Kola se hledají na fotce z boku. V záložce Kontrola siluet klikni do boku: na kolo = smazat, jinam = přidat kolo.</p>
       </div>
@@ -214,8 +223,9 @@ const invert = m => { const o = new Uint8Array(m.length); for (let i = 0; i < m.
 function erode(m, w, h, r) { const d = edt(m, w, h, 0), o = new Uint8Array(m.length); for (let i = 0; i < o.length; i++) o[i] = d[i] > r ? 1 : 0; return o; }
 function dilate(m, w, h, r) { const d = edt(invert(m), w, h, 1), o = new Uint8Array(m.length); for (let i = 0; i < o.length; i++) o[i] = d[i] <= r ? 1 : 0; return o; }
 
-function largestComponent(m, w, h) {
-  const lab = new Int32Array(w * h), st = new Int32Array(w * h); let best = 0, bestN = 0, id = 0;
+/* největší souvislá plocha; s minPx všechny plochy aspoň minPx pixelů (drobky pryč) */
+function largestComponent(m, w, h, minPx = 0) {
+  const lab = new Int32Array(w * h), st = new Int32Array(w * h), big = [0]; let best = 0, bestN = 0, id = 0;
   for (let s = 0; s < m.length; s++) {
     if (!m[s] || lab[s]) continue;
     id++; let sp = 0, cnt = 0; st[sp++] = s; lab[s] = id;
@@ -227,8 +237,9 @@ function largestComponent(m, w, h) {
       if (y < h - 1 && m[p + w] && !lab[p + w]) { lab[p + w] = id; st[sp++] = p + w; }
     }
     if (cnt > bestN) { bestN = cnt; best = id; }
+    big.push(minPx && cnt >= minPx ? 1 : 0);
   }
-  const o = new Uint8Array(w * h); for (let i = 0; i < o.length; i++) o[i] = lab[i] === best && best ? 1 : 0; return o;
+  const o = new Uint8Array(w * h); for (let i = 0; i < o.length; i++) o[i] = lab[i] && (lab[i] === best || big[lab[i]]) ? 1 : 0; return o;
 }
 function fillHoles(m, w, h) {
   const out = new Uint8Array(w * h).fill(1), st = new Int32Array(w * h); let sp = 0;
@@ -524,6 +535,75 @@ function buildParts(layers, nx, nz, P) {
   return { parts, dowels, details };
 }
 
+/* hladké boky: vrstvy jako v režimu Fotky, z průniku bočního, předního a horního průmětu modelu */
+function hullLayers(layers, nx, nz) {
+  const n = layers.length, S = new Uint8Array(nx * nz), F = new Uint8Array(n * nz), T = new Uint8Array(n * nx);
+  layers.forEach((l, i) => { for (let r = 0; r < nz; r++) for (let c = 0; c < nx; c++) if (l[r * nx + c]) { S[r * nx + c] = 1; F[i * nz + r] = 1; T[i * nx + c] = 1; } });
+  return layers.map((_, i) => {
+    const m = new Uint8Array(nx * nz);
+    for (let r = 0; r < nz; r++) if (F[i * nz + r]) for (let c = 0; c < nx; c++) m[r * nx + c] = S[r * nx + c] & T[i * nx + c];
+    return m;
+  });
+}
+
+/* vyhlazení vrstev: většina ze 3 sousedních vrstev, otevření a zavření obrysu o r px, kousky pod minPx pryč */
+function smoothLayers(layers, nx, nz, r, minPx) {
+  const n = layers.length;
+  return layers.map((b, i) => {
+    const a = layers[Math.max(0, i - 1)], c = layers[Math.min(n - 1, i + 1)], m = new Uint8Array(b.length);
+    for (let k = 0; k < m.length; k++) m[k] = a[k] + b[k] + c[k] >= 2 ? 1 : 0;
+    return largestComponent(dilate(erode(erode(dilate(m, nx, nz, r), nx, nz, r), nx, nz, r), nx, nz, r), nx, nz, minPx);
+  });
+}
+
+/* kola zvlášť: z vnějších vrstev vyříznout podběh, vnitřní vrstvy dostanou nosič osy; vrací počet vrstev kola */
+function carveWheels(layers, nx, nz, wheelsG, P, tw) {
+  const n = layers.length, wheelK = Math.max(1, Math.min(Math.floor((n - 1) / 2), Math.round(tw / P.t)));
+  const clr = 1 / P.res, carrier = (P.dowel > 0 ? P.dowel : 4) * 1.6 / P.res;
+  for (const w of wheelsG) {
+    const R = w.r + clr;
+    for (let i = 0; i < n; i++) {
+      const m = layers[i], outer = i < wheelK || i >= n - wheelK;
+      for (let r = Math.max(0, Math.floor(w.z - R)); r <= Math.min(nz - 1, Math.ceil(w.z + R)); r++)
+        for (let c = Math.max(0, Math.floor(w.x - R)); c <= Math.min(nx - 1, Math.ceil(w.x + R)); c++) {
+          const d2 = (c - w.x) ** 2 + (r - w.z) ** 2;
+          if (outer && d2 <= R * R) m[r * nx + c] = 0;
+          else if (!outer && d2 <= carrier * carrier) m[r * nx + c] = 1;
+        }
+      if (!outer) {   // nosič osy spojit s karoserií nad ním
+        let top = -1; for (let r = Math.floor(w.z - carrier); r >= 0; r--) if (m[r * nx + Math.round(w.x)]) { top = r; break; }
+        if (top >= 0) for (let r = top; r <= w.z; r++) for (let c = Math.floor(w.x - carrier); c <= Math.ceil(w.x + carrier); c++) if (c >= 0 && c < nx) m[r * nx + c] = 1;
+      }
+    }
+  }
+  for (let i = 0; i < n; i++) if (wheelsG.length && (i < wheelK || i >= n - wheelK)) layers[i] = largestComponent(layers[i], nx, nz, 60 / P.res ** 2);   // úzké zbytky u podběhů pryč
+  P.wheelsG = wheelsG;
+  P.axles = wheelsG.map(w => ({ x: Math.round(w.x), z: Math.round(w.z), layers: Array.from({ length: n - 2 * wheelK }, (_, j) => j + wheelK) }));
+  return wheelK;
+}
+
+/* kola na boční siluetě 3D modelu: místa, kde se spodek dotýká země, a kruh, který tam spodek nejlépe sedí (jeden poloměr pro všechna) */
+function meshWheels(u, nx, nz) {
+  const b = new Float32Array(nx).fill(-1); let g = -1, top = nz;
+  for (let c = 0; c < nx; c++) for (let r = nz - 1; r >= 0; r--) if (u[r * nx + c]) { b[c] = r; if (r > g) g = r; break; }
+  for (let k = 0; k < u.length; k++) if (u[k]) { top = (k / nx) | 0; break; }
+  const H = g - top; if (H < 10) return [];
+  const runs = [];
+  for (let c = 0; c < nx; c++) if (b[c] >= g - H * 0.03) { let e = c; while (e + 1 < nx && b[e + 1] >= g - H * 0.03) e++; if (e - c >= 2) runs.push([c, e]); c = e; }
+  if (runs.length < 2 || runs.length > 6) return [];   // nevypadá to na auto
+  const fit = (cx, r) => { let s = 0, k = 0; for (let x = Math.ceil(cx - r * 0.95); x <= cx + r * 0.95; x++) { if (x < 0 || x >= nx) continue; s += Math.abs(b[x] - (g - r + Math.sqrt(Math.max(0, r * r - (x - cx) ** 2)))); k++; } return k ? s / k / r : 9; };
+  let best = null;
+  for (let r = H * 0.14; r <= H * 0.25; r += H * 0.005) {
+    let tot = 0; const cs = [];
+    for (const [c, e] of runs) { let bc = c, be = 9; for (let j = 0; j <= 12; j++) { const cx = c + (e - c) * j / 12, er = fit(cx, r); if (er < be) { be = er; bc = cx; } } tot += be; cs.push(bc); }
+    if (!best || tot < best.tot) best = { tot, r, cs };
+  }
+  const inside = (cx, cz, r) => { let a = 0, k = 0; for (let y = Math.ceil(cz - r); y <= cz + r; y++) for (let x = Math.ceil(cx - r); x <= cx + r; x++)
+    if ((x - cx) ** 2 + (y - cz) ** 2 <= r * r) { k++; if (x >= 0 && x < nx && y >= 0 && y < nz && u[y * nx + x]) a++; } return k ? a / k : 0; };
+  const out = best.cs.map(x => ({ x, z: g - best.r, r: best.r })).filter(w => inside(w.x, w.z, w.r) > 0.85);   // nohy figurky nejsou kola
+  return out.length >= 2 ? out : [];
+}
+
 /* kola: kotouče s otvorem na osu; na vnějším kotouči gravír ráfku */
 function wheelParts(wheels, k, P, startIdx) {
   const out = [], seg = 72, ro = r => Array.from({ length: seg }, (_, j) => [Math.cos(j / seg * 2 * Math.PI) * r, Math.sin(j / seg * 2 * Math.PI) * r]);
@@ -682,7 +762,12 @@ async function meshFromBuffer(ext, buf) {
   if (!tris.length) throw new Error("V souboru nejsou žádné trojúhelníky.");
   return new Float32Array(tris);
 }
-function orientMesh(raw, up, L) {
+/* "10 × 2,55 × 3,3" -> [10, 2.55, 3.3] (jednotky jsou jedno, jde o poměr) */
+function parseReal(s) {
+  const v = (String(s || "").replace(/(\d),(\d)/g, "$1.$2").match(/\d+(\.\d+)?|\.\d+/g) || []).map(Number);
+  return v.length === 3 && v.every(x => x > 0) ? v : null;
+}
+function orientMesh(raw, up, L, real = null) {
   const ax = "xyz".indexOf(up.slice(-1)), sign = up[0] === "-" ? -1 : 1, mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i < raw.length; i++) { const a = i % 3; if (raw[i] < mn[a]) mn[a] = raw[i]; if (raw[i] > mx[a]) mx[a] = raw[i]; }
   const [lx, wy] = [0, 1, 2].filter(a => a !== ax).sort((a, b) => (mx[b] - mn[b]) - (mx[a] - mn[a]));
@@ -690,9 +775,10 @@ function orientMesh(raw, up, L) {
   for (let i = 0; i < raw.length; i += 3) { out[i] = raw[i + lx]; out[i + 1] = raw[i + wy]; out[i + 2] = raw[i + ax] * sign; }
   const m2 = [Infinity, Infinity, Infinity], M2 = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i < out.length; i++) { const a = i % 3; if (out[i] < m2[a]) m2[a] = out[i]; if (out[i] > M2[a]) M2[a] = out[i]; }
-  const k = L / (M2[0] - m2[0]);
-  for (let i = 0; i < out.length; i++) out[i] = (out[i] - m2[i % 3]) * k;
-  return { tri: out, W: (M2[1] - m2[1]) * k, H: (M2[2] - m2[2]) * k };
+  // skutečné proporce: každá osa zvlášť (AI z jedné fotky odhadne hloubku a výšku špatně)
+  const e = [0, 1, 2].map(a => M2[a] - m2[a]), k = real ? [L / e[0], L * real[1] / real[0] / e[1], L * real[2] / real[0] / e[2]] : [1, 1, 1].map(() => L / e[0]);
+  for (let i = 0; i < out.length; i++) out[i] = (out[i] - m2[i % 3]) * k[i % 3];
+  return { tri: out, W: e[1] * k[1], H: e[2] * k[2], ratio: [1, e[1] / e[0], e[2] / e[0]] };
 }
 
 function params() {
@@ -727,7 +813,6 @@ async function compute() {
         for (let r = 0; r < nz; r++) { if (!F[r * ny + yi]) continue; for (let c = 0; c < nx; c++) m[r * nx + c] = S[r * nx + c] & T[yi * nx + c]; }
         layers.push(m);
       }
-      // kola zvlášť: z vnějších vrstev vyříznout podběh, vnitřní vrstvy dostanou nosič osy
       wheelsG = []; wheelK = 0;
       if (P.wheelsOn && state.wheels.length && n >= 3) {
         const kx = nx / S0.w, kz = nz / S0.h;
@@ -744,38 +829,31 @@ async function compute() {
           const med = runs.length ? runs[runs.length >> 1] : 0;
           tw = med > 0 && med < ny * 0.42 ? med * P.res : W * 0.14;
         }
-        wheelK = Math.max(1, Math.min(Math.floor((n - 1) / 2), Math.round(tw / P.t)));
-        const clr = 1 / P.res, carrier = (P.dowel > 0 ? P.dowel : 4) * 1.6 / P.res;
-        for (const w of wheelsG) {
-          const R = w.r + clr;
-          for (let i = 0; i < n; i++) {
-            const m = layers[i], outer = i < wheelK || i >= n - wheelK;
-            for (let r = Math.max(0, Math.floor(w.z - R)); r <= Math.min(nz - 1, Math.ceil(w.z + R)); r++)
-              for (let c = Math.max(0, Math.floor(w.x - R)); c <= Math.min(nx - 1, Math.ceil(w.x + R)); c++) {
-                const d2 = (c - w.x) ** 2 + (r - w.z) ** 2;
-                if (outer && d2 <= R * R) m[r * nx + c] = 0;
-                else if (!outer && d2 <= carrier * carrier) m[r * nx + c] = 1;
-              }
-            if (!outer) {   // nosič osy spojit s karoserií nad ním
-              let top = -1; for (let r = Math.floor(w.z - carrier); r >= 0; r--) if (m[r * nx + Math.round(w.x)]) { top = r; break; }
-              if (top >= 0) for (let r = top; r <= w.z; r++) for (let c = Math.floor(w.x - carrier); c <= Math.ceil(w.x + carrier); c++) if (c >= 0 && c < nx) m[r * nx + c] = 1;
-            }
-          }
-        }
-        P.wheelsG = wheelsG;
-        P.axles = wheelsG.map(w => ({ x: Math.round(w.x), z: Math.round(w.z), layers: Array.from({ length: n - 2 * wheelK }, (_, j) => j + wheelK) }));
+        wheelK = carveWheels(layers, nx, nz, wheelsG, P, tw);
       }
     } else {
       const mesh = state.mode === "ai" ? state.aiScan : state.scan;
       if (!mesh) throw new Error(state.mode === "ai" ? "Vyber fotku, AI z ní udělá 3D model." : "Nahraj 3D sken.");
-      const o = orientMesh(mesh, state.mode === "ai" ? $("#aiUp").value : P.up, P.L); W = o.W; H = o.H;
+      const o = orientMesh(mesh, state.mode === "ai" ? $("#aiUp").value : P.up, P.L, parseReal($("#pReal").value)); W = o.W; H = o.H;
       ({ layers, nx, nz } = meshLayers(o.tri, P.L, W, H, P.t, P.res));
+      if (state.mode === "ai" && $("#aiSym").checked)   // doplněk dává bok z fotky na konec (+Z); AI si odvrácený bok jen domýšlí
+        for (let i = 0; i < layers.length >> 1; i++) layers[i] = layers[layers.length - 1 - i].slice();
       const u = new Uint8Array(nx * nz); for (const l of layers) for (let k = 0; k < u.length; k++) u[k] |= l[k];
+      if (state.mode === "ai" && $("#aiShape").value === "hull") layers = hullLayers(layers, nx, nz);
+      if (state.mode === "ai") layers = smoothLayers(layers, nx, nz, 1.5 / P.res, 100 / P.res ** 2);   // AI model je hrbolatý: zubaté okraje vrstev pryč
       silFigs = [["Boční pohled na vrstvy", u, nx, nz]];
+      if (state.mode === "ai") $("#realHint").textContent = `AI odhadla poměr ${o.ratio.map(v => v.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })).join(" : ")}. Z jedné fotky hloubku a výšku odhaduje špatně, zadej skutečné rozměry.`;
+      // kola: najít na boku (jednou pro každý model a rozměr), pak upravit kliknutím
+      wheelsG = []; wheelK = 0;
+      if (!state.mWheels) state.mWheels = meshWheels(u, nx, nz).map(w => ({ x: w.x / nx, y: w.z / nz, r: w.r / nz }));   // v poměru k boku
+      if (P.wheelsOn && state.mWheels.length && layers.length >= 3) {
+        wheelsG = state.mWheels.map(w => ({ x: w.x * nx, z: w.y * nz, r: w.r * nz }));
+        wheelK = carveWheels(layers, nx, nz, wheelsG, P, P.wheelW || W * 0.14);
+      }
     }
     setStatus(`Vrstev: ${layers.length}. Hledám kolíky, dutiny a obrysy…`); await tick();
     const { parts, dowels, details } = buildParts(layers, nx, nz, P); delete P.gray; delete P.grayB;
-    const usedWheels = state.mode === "photo" ? wheelsG : [];
+    const usedWheels = wheelsG;
     if (usedWheels.length) parts.push(...wheelParts(usedWheels, wheelK, P, layers.length));
     if (!parts.length) throw new Error("Nevznikla žádná vrstva. Zkontroluj siluety.");
     const sheets = packSheets(parts, P.SW, P.SH);
@@ -839,17 +917,20 @@ function renderSil(figs) {
   const box = $("#sil"); box.innerHTML = "";
   for (const [name, m, w, h] of figs) {
     const f = document.createElement("figure"), c = maskToCanvas(m, w, h, [245, 245, 240, 255], [20, 22, 21, 255]);
-    if (name === "Bok" && (state.side || state.sideR)) {
-      const S0 = state.side || state.sideR, kx = w / S0.w, kz = h / S0.h, x = c.getContext("2d");
+    // kola: fotka v pixelech fotky z boku, 3D model v poměru k boku (0–1)
+    const S0 = state.side || state.sideR, ed = name === "Bok" && S0 ? { list: state.wheels, sw: S0.w, sh: S0.h }
+      : name === "Boční pohled na vrstvy" && state.mWheels ? { list: state.mWheels, sw: 1, sh: 1 } : null;
+    if (ed) {
+      const kx = w / ed.sw, kz = h / ed.sh, x = c.getContext("2d");
       x.strokeStyle = "#e07a1f"; x.lineWidth = Math.max(2, w / 200);
-      for (const wh of state.wheels) { x.beginPath(); x.arc(wh.x * kx, wh.y * kz, wh.r * kx, 0, 7); x.stroke(); }
+      for (const wh of ed.list) { x.beginPath(); x.ellipse(wh.x * kx, wh.y * kz, wh.r * kz, wh.r * kz, 0, 0, 7); x.stroke(); }
       c.style.cursor = "crosshair"; c.title = "Klik na kolo = smazat, jinam = přidat kolo";
       c.onclick = e => {
-        const b = c.getBoundingClientRect(), px = (e.clientX - b.left) / b.width * S0.w, py = (e.clientY - b.top) / b.height * S0.h;
-        const hit = state.wheels.findIndex(wh => Math.hypot(wh.x - px, wh.y - py) < wh.r);
-        if (hit >= 0) state.wheels.splice(hit, 1);
-        else { const rs = state.wheels.map(wh => wh.r).sort((a, b2) => a - b2); const rr = rs.length ? rs[rs.length >> 1] : S0.h * 0.18; state.wheels.push({ x: px, y: Math.min(py, S0.h - rr), r: rr }); }
-        state.wheels.sort((a, b2) => a.x - b2.x); compute().then(() => $("#tSil").click());
+        const b = c.getBoundingClientRect(), px = (e.clientX - b.left) / b.width * ed.sw, py = (e.clientY - b.top) / b.height * ed.sh;
+        const hit = ed.list.findIndex(wh => Math.hypot((wh.x - px) * kx, (wh.y - py) * kz) < wh.r * kz);
+        if (hit >= 0) ed.list.splice(hit, 1);
+        else { const rs = ed.list.map(wh => wh.r).sort((a, b2) => a - b2); const rr = rs.length ? rs[rs.length >> 1] : ed.sh * 0.18; ed.list.push({ x: px, y: Math.min(py, ed.sh - rr), r: rr }); }
+        ed.list.sort((a, b2) => a.x - b2.x); compute().then(() => $("#tSil").click());
       };
     }
     f.appendChild(c); const cap = document.createElement("figcaption"); cap.textContent = name; f.appendChild(cap); box.appendChild(f);
@@ -913,7 +994,11 @@ function show3D(layers, nx, nz, P, H, details = {}, wheels = [], wk = 0) {
 function setMode(m) {
   state.mode = m; $("#modePhoto").setAttribute("aria-pressed", m === "photo"); $("#modeScan").setAttribute("aria-pressed", m === "scan"); $("#modeAi").setAttribute("aria-pressed", m === "ai");
   $("#aiIn").hidden = m !== "ai"; $("#viewHint").hidden = m !== "photo";
-  $("#photoIn").hidden = m !== "photo"; $("#detBox").hidden = m !== "photo"; $("#wheelBox").hidden = m !== "photo"; $("#scanIn").hidden = m !== "scan";
+  $("#photoIn").hidden = m !== "photo"; $("#detBox").hidden = m !== "photo"; $("#scanIn").hidden = m !== "scan"; $("#realBox").hidden = m === "photo";
+  $("#wheelHint").textContent = m !== "photo" ? "Kola se hledají na boku modelu. V záložce Kontrola siluet klikni do boku: na kolo = smazat, jinam = přidat kolo."
+    : AI ? "Kola se hledají na fotce z boku. V záložce Kontrola siluet klikni do boku: na kolo = smazat, jinam = přidat kolo." : "Bez AI: kola přidáš ručně kliknutím do boku v záložce Kontrola siluet.";
+  if (m === "photo") $("#realHint").textContent = "";
+  state.mWheels = null;
 }
 $("#modePhoto").onclick = () => { setMode("photo"); compute(); };
 $("#modeAi").onclick = () => { setMode("ai"); addonRefresh(); if (state.aiScan) compute(); };
@@ -948,12 +1033,12 @@ document.querySelectorAll(".drop .flip").forEach(b => b.onclick = async e => {
 });
 $("#fScan").onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
-  try { setStatus("Načítám sken…"); await tick(); state.scan = await loadScan(f);
+  try { setStatus("Načítám sken…"); await tick(); state.scan = await loadScan(f); state.mWheels = null;
     $("#scanName").innerHTML = `${f.name} <small>${(state.scan.length / 9).toLocaleString("cs-CZ")} trojúhelníků</small>`; compute(); }
   catch (err) { setStatus(err.message || "Sken se nepodařilo načíst.", true); }
 };
-$("#up").onchange = () => state.scan && compute();
-$("#aiUp").onchange = () => state.aiScan && compute();
+const remesh = () => { state.mWheels = null; if (state.mode !== "photo" && (state.mode === "ai" ? state.aiScan : state.scan)) compute(); };
+$("#up").onchange = remesh; $("#aiUp").onchange = remesh; $("#pReal").onchange = remesh; $("#aiSym").onchange = $("#aiShape").onchange = remesh;
 
 /* AI 3D doplněk (TripoSR): instalace a výroba modelu z jedné fotky */
 let addonTimer = 0;
@@ -962,7 +1047,7 @@ async function addonRefresh() {
   try { st = await (await fetch("api/addon3d", { cache: "no-store" })).json(); } catch (e) { st = { available: false }; }
   const ready = st.state === "ready";
   $("#aiInstall").hidden = !st.available || ready || st.state === "installing";
-  $("#aiDrop").hidden = $("#aiResBox").hidden = $("#aiUpBox").hidden = !ready;
+  $("#aiDrop").hidden = $("#aiResBox").hidden = $("#aiUpBox").hidden = $("#aiShapeBox").hidden = !ready;
   if (!st.available) $("#aiSt").textContent = "AI 3D doplněk funguje jen v Preklizka.exe ve Windows.";
   else if (ready) $("#aiSt").textContent = "AI 3D doplněk je připravený" + (st.gpu ? " (grafická karta NVIDIA)." : " (počítá procesor, model potrvá pár minut).") + " Fotka z boku nebo šikmo zepředu, celé auto v záběru.";
   else if (st.state === "installing") $("#aiSt").textContent = "Instaluji: " + st.step + (st.log ? " – " + st.log : "");
@@ -987,13 +1072,13 @@ $("#fAi").onchange = async e => {
     if (!r.ok) throw new Error(j.detail || "server " + r.status);
     const bin = Uint8Array.from(atob(j.glb), ch => ch.charCodeAt(0));
     state.aiScan = await meshFromBuffer("glb", bin.buffer);
-    state.aiGlb = bin;
+    state.aiGlb = bin; state.mWheels = null;
     $("#aiName").innerHTML = `${f.name} <small>${(state.aiScan.length / 9).toLocaleString("cs-CZ")} trojúhelníků, ${((Date.now() - t0) / 1000).toFixed(0)} s</small>`;
     btn.disabled = false; await compute();
   } catch (err) { setStatus(err.message || String(err), true); btn.disabled = false; }
 };
 $("#pDet").onchange = () => state.mode === "photo" && compute();
-["#pWheels", "#pWW", "#pSpin"].forEach(id => $(id).onchange = () => state.mode === "photo" && compute());
+["#pWheels", "#pWW", "#pSpin"].forEach(id => $(id).onchange = () => (state.mode === "photo" || (state.mode === "ai" ? state.aiScan : state.scan)) && compute());
 $("#run").onclick = compute;
 
 const tabs = [["#t3d", "#p3d"], ["#tSheets", "#pSheets"], ["#tSil", "#pSil"]];
