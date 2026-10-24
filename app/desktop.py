@@ -118,12 +118,12 @@ class Api:
     """Funkce volané ze stránky (window.pywebview.api.*)."""
 
     def __init__(self):
-        self.window = None
+        self._window = None
 
     def save_png(self, name, b64):
         import base64
         import webview
-        res = self.window.create_file_dialog(webview.SAVE_DIALOG, save_filename=name, file_types=("PNG (*.png)", "Všechny soubory (*.*)"))
+        res = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=name, file_types=("PNG (*.png)", "Všechny soubory (*.*)"))
         if not res:
             return ""
         path = res if isinstance(res, str) else res[0]
@@ -135,7 +135,7 @@ class Api:
         import base64
         import webview
         ext = name.rsplit(".", 1)[-1].lower() if "." in name else "*"
-        res = self.window.create_file_dialog(webview.SAVE_DIALOG, save_filename=name, file_types=(f"{ext.upper()} (*.{ext})", "Všechny soubory (*.*)"))
+        res = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=name, file_types=(f"{ext.upper()} (*.{ext})", "Všechny soubory (*.*)"))
         if not res:
             return ""
         path = res if isinstance(res, str) else res[0]
@@ -145,7 +145,7 @@ class Api:
 
     def save_file(self, name, content):
         import webview
-        res = self.window.create_file_dialog(webview.SAVE_DIALOG, save_filename=name, file_types=("SVG (*.svg)", "Všechny soubory (*.*)"))
+        res = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=name, file_types=("SVG (*.svg)", "Všechny soubory (*.*)"))
         if not res:
             return ""
         path = res if isinstance(res, str) else res[0]
@@ -209,7 +209,7 @@ def main() -> None:
     try:
         win = webview.create_window(f"Překližkové vrstvy v{server.VERSION}", url, js_api=api,
                                     width=1440, height=920, min_size=(900, 600), text_select=True)
-        api.window = win
+        api._window = win   # s podtržítkem: pywebview ho neprochází (jinak start „neodpovídá“)
         webview.start(private_mode=False)
     except Exception as e:                                   # noqa: BLE001  WebView2 chybí -> prohlížeč
         print("Okno selhalo, otevírám prohlížeč:", e)
