@@ -149,6 +149,20 @@ def ai_run(inp: AiIn):
     return {"img": base64.b64encode(out).decode()}
 
 
+class WheelsIn(BaseModel):
+    img: str
+
+
+@app.post("/api/ai/wheels")
+def ai_wheels(inp: WheelsIn):
+    import ai
+    try:
+        img = ai.decode(base64.b64decode(inp.img.split(",")[-1]))
+    except Exception:
+        raise HTTPException(400, "Poškozený obrázek.")
+    return {"wheels": ai.detect_wheels(img)}
+
+
 @app.get("/")
 def index():
     return FileResponse(WEB / "index.html", headers={"Cache-Control": "no-cache"})

@@ -86,9 +86,13 @@ def _swap_and_restart(new: Path, exe: Path, port: str) -> None:
         pass
     os.replace(exe, old)                               # běžící exe jde přejmenovat
     os.replace(new, exe)
-    env = dict(os.environ, PREKLIZKA_PORT=port, PREKLIZKA_NO_BROWSER="1")
-    flags = 0x00000010 if os.name == "nt" else 0       # CREATE_NEW_CONSOLE
-    subprocess.Popen([str(exe)], env=env, creationflags=flags, close_fds=True)
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("_PYI", "_MEIPASS"))}
+    env.update(PREKLIZKA_PORT=port, PREKLIZKA_NO_BROWSER="1",
+               PYINSTALLER_RESET_ENVIRONMENT="1")      # nová verze se musí rozbalit znovu, ne použít složku staré verze
+    for k in ("PREKLIZKA_DESKTOP", "PREKLIZKA_WINDOW"):
+        env.pop(k, None)
+    flags = 0x00000008 | 0x00000200 if os.name == "nt" else 0   # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    subprocess.Popen([str(exe)], env=env, creationflags=flags, close_fds=True, cwd=str(exe.parent))
     hard_exit(0)
 
 

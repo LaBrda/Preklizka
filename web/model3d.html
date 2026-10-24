@@ -88,7 +88,7 @@ details summary{cursor:pointer;font-size:13px;font-weight:600}
   <header>
     <h1>Překližkové vrstvy <span class="ver">v__VERSION__</span></h1>
     <nav class="appsw" aria-label="Režim"><a href="/">Obrázek</a><span aria-current="page">3D model</span></nav>
-    <p>Z fotek nebo 3D skenu nařeže model na vrstvy pro laser. Vrstvy se lepí vedle sebe a spojí kolíky. Vše se počítá jen v tomto prohlížeči.</p>
+    <p>Z fotek nebo 3D skenu nařeže model na vrstvy pro laser. Vrstvy se lepí vedle sebe a spojí kolíky. Pozadí fotek odstraní AI a u aut najde kola, která se vyřežou zvlášť.</p>
   </header>
 
   <div class="grid">
@@ -117,6 +117,12 @@ details summary{cursor:pointer;font-size:13px;font-weight:600}
         <div class="f"><label for="pH">Dutina, stěna (mm, 0 = plné)</label><input id="pH" type="number" min="0" step="1" value="6"></div>
         <div class="f wide"><label for="pSW">Deska (mm)</label>
           <div class="board"><input id="pSW" type="number" min="50" step="10" value="400" aria-label="Šířka desky"><span>×</span><input id="pSH" type="number" min="50" step="10" value="400" aria-label="Výška desky"></div></div>
+      </div>
+      <div class="fields" id="wheelBox">
+        <label class="f" style="flex-direction:row;align-items:center;gap:8px;grid-column:1/-1"><input id="pWheels" type="checkbox" checked style="width:auto"> Kola zvlášť (vlastní díly na ose)</label>
+        <div class="f"><label for="pWW">Šířka kola (mm, 0 = podle předku)</label><input id="pWW" type="number" min="0" step="1" value="0"></div>
+        <label class="f" style="flex-direction:row;align-items:center;gap:8px;align-self:end"><input id="pSpin" type="checkbox" checked style="width:auto"> Kola se točí</label>
+        <p class="hint" style="grid-column:1/-1;margin:0" id="wheelHint">Kola se hledají na fotce z boku. V záložce Kontrola siluet klikni do boku: na kolo = smazat, jinam = přidat kolo.</p>
       </div>
       <div class="f" id="detBox"><label for="pDet">Detaily na bocích (z fotky z boku)</label>
         <select id="pDet"><option value="0">Žádné</option><option value="0.985">Málo</option><option value="0.97" selected>Středně</option><option value="0.94">Hodně</option></select></div>
@@ -446,6 +452,7 @@ function buildParts(layers, nx, nz, P) {
       dowels.push({ x: bk % nx, z: (bk / nx) | 0, layers: new Set(inner.filter(i => er.get(i)[bk])) });
     }
   }
+  for (const a of P.axles || []) dowels.push({ x: a.x, z: a.z, layers: new Set(a.layers), axle: true });
   const disc = (m, x, z, r, v) => { const r2 = r * r; for (let y = Math.max(0, Math.floor(z - r)); y <= Math.min(nz - 1, Math.ceil(z + r)); y++) for (let xx = Math.max(0, Math.floor(x - r)); xx <= Math.min(nx - 1, Math.ceil(x + r)); xx++) if ((xx - x) ** 2 + (y - z) ** 2 <= r2) m[y * nx + xx] = v; };
   const final = layers.map(l => l.slice());
   if (wall > 0 && n > 2) {
@@ -468,7 +475,11 @@ function buildParts(layers, nx, nz, P) {
     const sideA = k => { for (let i = 0; i < half; i++) if (layers[i][k]) return ok(i, k); return -1; };
     const sideB = k => { for (let i = n - 1; i >= half; i--) if (layers[i][k]) return ok(i, k); return -1; };
     for (const f of n > 1 ? [sideA, sideB] : [sideA])
-      for (const { key, pts } of edgeLines(P.gray, inside, nx, nz, res, P.detail, f)) (details[key] = details[key] || []).push(pts);
+      for (const { key, pts } of edgeLines(P.gray, inside, nx, nz, res, P.detail, f)) {
+        // čáry uvnitř kol vynechat (kolo je samostatný díl a zakryje je)
+        if ((P.wheelsG || []).some(w => pts.filter(([x, y]) => (x / res - w.x) ** 2 + (y / res - w.z) ** 2 < (w.r * 1.08) ** 2).length > pts.length / 2)) continue;
+        (details[key] = details[key] || []).push(pts);
+      }
   }
   const parts = [], Lmm = nx * res;
   for (let i = 0; i < n; i++) {
@@ -497,11 +508,27 @@ function buildParts(layers, nx, nz, P) {
   return { parts, dowels, details };
 }
 
+/* kola: kotouče s otvorem na osu; na vnějším kotouči gravír ráfku */
+function wheelParts(wheels, k, P, startIdx) {
+  const out = [], seg = 72, ro = r => Array.from({ length: seg }, (_, j) => [Math.cos(j / seg * 2 * Math.PI) * r, Math.sin(j / seg * 2 * Math.PI) * r]);
+  const hole = Math.max(1, (P.dowel > 0 ? P.dowel : 4) / 2 - P.kerf / 2 + (P.spin ? 0.25 : 0));
+  let idx = startIdx;
+  wheels.forEach((w, wi) => {
+    const R = w.r * P.res;
+    for (let side = 0; side < 2; side++) for (let j = 0; j < k; j++) {
+      const outer = j === 0, loops = [ro(R + P.kerf / 2).map(([x, y]) => [x + R + 1, y + R + 1])];
+      const lines = outer ? [ro(R * 0.62), ro(R * 0.22)].map(l => [...l, l[0]].map(([x, y]) => [x + R + 1, y + R + 1])) : [];
+      out.push({ i: idx++, wheel: wi + 1, loops, holes: [[R + 1, R + 1, hole]], num: null, lines, box: [1 - P.kerf, 1 - P.kerf, 2 * R + 1 + P.kerf, 2 * R + 1 + P.kerf] });
+    }
+  });
+  return out;
+}
+
 function packSheets(parts, SW, SH) {
   const gap = 3, sheets = []; let cur = [], x = gap, y = gap, row = 0;
   for (const p of [...parts].sort((a, b) => (b.box[3] - b.box[1]) - (a.box[3] - a.box[1]))) {
     const w = p.box[2] - p.box[0], h = p.box[3] - p.box[1];
-    if (w + 2 * gap > SW || h + 2 * gap > SH) throw new Error(`Vrstva ${p.i + 1} (${w.toFixed(0)} × ${h.toFixed(0)} mm) se nevejde na desku ${SW} × ${SH} mm. Zvětši desku nebo zmenši model.`);
+    if (w + 2 * gap > SW || h + 2 * gap > SH) throw new Error(`${p.wheel ? "Kolo" : "Vrstva"} ${p.wheel || p.i + 1} (${w.toFixed(0)} × ${h.toFixed(0)} mm) se nevejde na desku ${SW} × ${SH} mm. Zvětši desku nebo zmenši model.`);
     if (x + w + gap > SW) { x = gap; y += row + gap; row = 0; }
     if (y + h + gap > SH) { sheets.push(cur); cur = []; x = y = gap; row = 0; }
     cur.push({ p, dx: x - p.box[0], dy: y - p.box[1] }); x += w + gap; row = Math.max(row, h);
@@ -527,7 +554,7 @@ function sheetSVG(sheet, SW, SH, sw = "0.1", extra = "") {
 <script>
 /* ===== UI ===== */
 const $ = s => document.querySelector(s);
-const state = { mode: "photo", side: null, front: null, top: null, scan: null, sample: true, result: null };
+const state = { mode: "photo", side: null, front: null, top: null, scan: null, sample: true, result: null, wheels: [] };
 const statusEl = $("#status");
 const setStatus = (msg, err) => { statusEl.textContent = msg; statusEl.classList.toggle("err", !!err); };
 const tick = () => new Promise(r => setTimeout(r, 16));
@@ -556,6 +583,7 @@ function drawableToSil(src) {
   const ctx = c.getContext("2d"); ctx.drawImage(src, 0, 0, w, h);
   const d = ctx.getImageData(0, 0, w, h).data, s = silhouette(d, w, h);
   if (!s) throw new Error("Na fotce jsem nenašel žádný objekt.");
+  s.canvas = c;
   s.gray = new Uint8Array(s.w * s.h);
   for (let y = 0; y < s.h; y++) for (let x = 0; x < s.w; x++) { const i = ((y + s.y0) * w + x + s.x0) * 4; s.gray[y * s.w + x] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; }
   return s;
@@ -583,6 +611,33 @@ function sampleImages() {
 }
 
 async function loadImageFile(file) { const img = new Image(); img.src = URL.createObjectURL(file); await img.decode(); return img; }
+
+/* AI (Preklizka.exe): pozadí odstraní model, kola najde OpenCV */
+let AI = null;
+const post = (u, b) => fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
+async function aiCutout(img) {
+  const params = { kind: "auto" };
+  for (;;) {
+    const r = await post("api/ai/prepare", { op: "bg", params }), j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.detail || "server " + r.status);
+    if (j.ready) break;
+    if (j.error) throw new Error("model se nepodařilo stáhnout (" + j.error + ")");
+    setStatus(`Stahuji AI model, jen poprvé (${j.mb} MB): ${j.pct} %`); await new Promise(res => setTimeout(res, 800));
+  }
+  setStatus("AI odstraňuje pozadí…");
+  const sw = img.naturalWidth || img.width, sh = img.naturalHeight || img.height, k = Math.min(1, 1600 / Math.max(sw, sh));
+  const c = document.createElement("canvas"); c.width = Math.round(sw * k); c.height = Math.round(sh * k); c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  const r = await post("api/ai/run", { op: "bg", params, img: c.toDataURL("image/png") }), j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || "server " + r.status);
+  const out = new Image(); out.src = "data:image/png;base64," + j.img; await out.decode(); return out;
+}
+async function aiWheels(s) {
+  if (!AI || !s || !s.canvas) return [];
+  try {
+    const r = await post("api/ai/wheels", { img: s.canvas.toDataURL("image/png") }), j = await r.json();
+    return (j.wheels || []).map(([x, y, rr]) => ({ x: x - s.x0, y: y - s.y0, r: rr })).filter(w => w.x > 0 && w.x < s.w && w.y > 0 && w.y < s.h + w.r);
+  } catch (e) { return []; }
+}
 
 async function loadScan(file) {
   const ext = file.name.split(".").pop().toLowerCase(), buf = await file.arrayBuffer(); let obj;
@@ -618,9 +673,11 @@ function params() {
   const num = (id, d) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : d; };
   return { L: num("#pL", 200), t: Math.max(0.5, num("#pT", 3)), dowel: Math.max(0, num("#pD", 4)), wall: Math.max(0, num("#pH", 0)),
     kerf: Math.max(0, num("#pK", 0.15)), numMax: Math.max(0, num("#pN", 5)), res: Math.max(0.1, num("#pR", 0.25)),
-    SW: num("#pSW", 400), SH: num("#pSH", 400), up: $("#up").value, detail: parseFloat($("#pDet").value) || 0 };
+    SW: num("#pSW", 400), SH: num("#pSH", 400), up: $("#up").value, detail: parseFloat($("#pDet").value) || 0,
+    wheelsOn: $("#pWheels").checked, wheelW: Math.max(0, num("#pWW", 0)), spin: $("#pSpin").checked };
 }
 
+let wheelsG = [], wheelK = 0;
 async function compute() {
   const P = params(), btn = $("#run"); btn.disabled = true;
   try {
@@ -640,6 +697,44 @@ async function compute() {
         for (let r = 0; r < nz; r++) { if (!F[r * ny + yi]) continue; for (let c = 0; c < nx; c++) m[r * nx + c] = S[r * nx + c] & T[yi * nx + c]; }
         layers.push(m);
       }
+      // kola zvlášť: z vnějších vrstev vyříznout podběh, vnitřní vrstvy dostanou nosič osy
+      wheelsG = []; wheelK = 0;
+      if (P.wheelsOn && state.wheels.length && n >= 3) {
+        const kx = nx / S0.w, kz = nz / S0.h;
+        wheelsG = state.wheels.map(w => ({ x: w.x * kx, z: w.y * kz, r: w.r * kx }));
+        let tw = P.wheelW;
+        if (!tw) {   // šířka pneumatiky z fotky zepředu: šířka krajního sloupku dole
+          const zc = wheelsG.reduce((a, w) => a + w.z, 0) / wheelsG.length, rr = wheelsG.reduce((a, w) => a + w.r, 0) / wheelsG.length, runs = [];
+          for (let r = Math.round(zc + rr * 0.2); r < Math.min(nz, Math.round(zc + rr * 0.8)); r++) {
+            let a = -1; for (let c = 0; c < ny; c++) if (F[r * ny + c]) { a = c; break; }
+            if (a < 0) continue; let b = a; while (b < ny && F[r * ny + b]) b++;
+            runs.push(b - a);
+          }
+          runs.sort((p, q) => p - q);
+          const med = runs.length ? runs[runs.length >> 1] : 0;
+          tw = med > 0 && med < ny * 0.42 ? med * P.res : W * 0.14;
+        }
+        wheelK = Math.max(1, Math.min(Math.floor((n - 1) / 2), Math.round(tw / P.t)));
+        const clr = 1 / P.res, carrier = (P.dowel > 0 ? P.dowel : 4) * 1.6 / P.res;
+        for (const w of wheelsG) {
+          const R = w.r + clr;
+          for (let i = 0; i < n; i++) {
+            const m = layers[i], outer = i < wheelK || i >= n - wheelK;
+            for (let r = Math.max(0, Math.floor(w.z - R)); r <= Math.min(nz - 1, Math.ceil(w.z + R)); r++)
+              for (let c = Math.max(0, Math.floor(w.x - R)); c <= Math.min(nx - 1, Math.ceil(w.x + R)); c++) {
+                const d2 = (c - w.x) ** 2 + (r - w.z) ** 2;
+                if (outer && d2 <= R * R) m[r * nx + c] = 0;
+                else if (!outer && d2 <= carrier * carrier) m[r * nx + c] = 1;
+              }
+            if (!outer) {   // nosič osy spojit s karoserií nad ním
+              let top = -1; for (let r = Math.floor(w.z - carrier); r >= 0; r--) if (m[r * nx + Math.round(w.x)]) { top = r; break; }
+              if (top >= 0) for (let r = top; r <= w.z; r++) for (let c = Math.floor(w.x - carrier); c <= Math.ceil(w.x + carrier); c++) if (c >= 0 && c < nx) m[r * nx + c] = 1;
+            }
+          }
+        }
+        P.wheelsG = wheelsG;
+        P.axles = wheelsG.map(w => ({ x: Math.round(w.x), z: Math.round(w.z), layers: Array.from({ length: n - 2 * wheelK }, (_, j) => j + wheelK) }));
+      }
     } else {
       if (!state.scan) throw new Error("Nahraj 3D sken.");
       const o = orientMesh(state.scan, P.up, P.L); W = o.W; H = o.H;
@@ -649,12 +744,14 @@ async function compute() {
     }
     setStatus(`Vrstev: ${layers.length}. Hledám kolíky, dutiny a obrysy…`); await tick();
     const { parts, dowels, details } = buildParts(layers, nx, nz, P); delete P.gray;
+    const usedWheels = state.mode === "photo" ? wheelsG : [];
+    if (usedWheels.length) parts.push(...wheelParts(usedWheels, wheelK, P, layers.length));
     if (!parts.length) throw new Error("Nevznikla žádná vrstva. Zkontroluj siluety.");
     const sheets = packSheets(parts, P.SW, P.SH);
-    state.result = { P, W, H, n: layers.length, parts, dowels, sheets };
+    state.result = { P, W, H, n: layers.length, parts, dowels, sheets, wheels: usedWheels.length, wheelK };
     renderStats(); renderSheets(); renderSil(silFigs);
     setStatus("Hotovo."); await tick();
-    show3D(layers, nx, nz, P, H, details);
+    show3D(layers, nx, nz, P, H, details, usedWheels, wheelK);
   } catch (e) { console.error(e); setStatus(e.message || String(e), true); }
   finally { btn.disabled = false; }
 }
@@ -664,9 +761,11 @@ function renderStats() {
   $("#stats").innerHTML =
     (state.sample && state.mode === "photo" ? `<span class="chip sample">Ukázka – nahraj vlastní fotky</span>` : "") +
     `<span class="chip"><b>Rozměr</b>${P.L.toFixed(0)} × ${(r.n * P.t).toFixed(0)} × ${r.H.toFixed(0)} mm</span>` +
-    `<span class="chip"><b>Vrstvy</b>${r.parts.length} × ${P.t} mm</span>` +
-    `<span class="chip"><b>Desky</b>${r.sheets.length} × ${P.SW}×${P.SH}</span>`;
+    `<span class="chip"><b>Vrstvy</b>${r.parts.filter(p => !p.wheel).length} × ${P.t} mm</span>` +
+    `<span class="chip"><b>Desky</b>${r.sheets.length} × ${P.SW}×${P.SH}</span>` +
+    (r.wheels ? `<span class="chip"><b>Kola</b>${r.wheels} × 2 strany × ${r.wheelK} vrstvy</span>` : "");
   $("#dowelInfo").textContent = r.dowels.filter(d => d.layers.size).map((d, j) => {
+    if (d.axle) return `Osa kola ${j + 1}: Ø${P.dowel || 4} mm, délka ~${(r.n * P.t).toFixed(0)} mm`;
     const ls = [...d.layers]; return `Kolík ${j + 1}: Ø${P.dowel} mm, délka ~${(ls.length * P.t - 1).toFixed(0)} mm (vrstvy ${Math.min(...ls) + 1}–${Math.max(...ls) + 1})`;
   }).join("   ·   ") || (P.dowel > 0 ? "Kolíky se do modelu nevešly." : "");
 }
@@ -709,6 +808,19 @@ function renderSil(figs) {
   const box = $("#sil"); box.innerHTML = "";
   for (const [name, m, w, h] of figs) {
     const f = document.createElement("figure"), c = maskToCanvas(m, w, h, [245, 245, 240, 255], [20, 22, 21, 255]);
+    if (name === "Bok" && state.side) {
+      const S0 = state.side, kx = w / S0.w, kz = h / S0.h, x = c.getContext("2d");
+      x.strokeStyle = "#e07a1f"; x.lineWidth = Math.max(2, w / 200);
+      for (const wh of state.wheels) { x.beginPath(); x.arc(wh.x * kx, wh.y * kz, wh.r * kx, 0, 7); x.stroke(); }
+      c.style.cursor = "crosshair"; c.title = "Klik na kolo = smazat, jinam = přidat kolo";
+      c.onclick = e => {
+        const b = c.getBoundingClientRect(), px = (e.clientX - b.left) / b.width * S0.w, py = (e.clientY - b.top) / b.height * S0.h;
+        const hit = state.wheels.findIndex(wh => Math.hypot(wh.x - px, wh.y - py) < wh.r);
+        if (hit >= 0) state.wheels.splice(hit, 1);
+        else { const rs = state.wheels.map(wh => wh.r).sort((a, b2) => a - b2); const rr = rs.length ? rs[rs.length >> 1] : S0.h * 0.18; state.wheels.push({ x: px, y: Math.min(py, S0.h - rr), r: rr }); }
+        state.wheels.sort((a, b2) => a.x - b2.x); compute().then(() => $("#tSil").click());
+      };
+    }
     f.appendChild(c); const cap = document.createElement("figcaption"); cap.textContent = name; f.appendChild(cap); box.appendChild(f);
   }
 }
@@ -731,7 +843,7 @@ function init3D() {
   new ResizeObserver(size).observe(el);
   R = { renderer, scene, camera, controls, group, draw, size }; size(); return R;
 }
-function show3D(layers, nx, nz, P, H, details = {}) {
+function show3D(layers, nx, nz, P, H, details = {}, wheels = [], wk = 0) {
   const r = init3D(); if (!r) return;
   r.group.children.forEach(m => m.geometry.dispose()); r.group.clear();
   const lineMat = new THREE.LineBasicMaterial({ color: 0x4a2f16 });
@@ -756,6 +868,11 @@ function show3D(layers, nx, nz, P, H, details = {}) {
     if (!pos.length) continue;
     const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); r.group.add(new THREE.LineSegments(g, lineMat));
   }
+  const tireMat = new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.9 });
+  for (const w of wheels) for (const sgn of [-1, 1]) {
+    const g = new THREE.CylinderGeometry(w.r * P.res, w.r * P.res, wk * P.t * 0.97, 40); g.rotateX(Math.PI / 2);
+    const m = new THREE.Mesh(g, tireMat); m.position.set(w.x * P.res - P.L / 2, H / 2 - w.z * P.res, sgn * (n * P.t / 2 - wk * P.t / 2)); r.group.add(m);
+  }
   const span = Math.max(P.L, H, n * P.t);
   r.camera.position.set(span * 1.1, span * 0.7, span * 1.5); r.camera.near = span / 100; r.camera.far = span * 20; r.camera.updateProjectionMatrix();
   r.controls.target.set(0, 0, 0); r.controls.update(); r.size(); r.draw();
@@ -764,7 +881,7 @@ function show3D(layers, nx, nz, P, H, details = {}) {
 /* ===== ovládání ===== */
 function setMode(m) {
   state.mode = m; $("#modePhoto").setAttribute("aria-pressed", m === "photo"); $("#modeScan").setAttribute("aria-pressed", m === "scan");
-  $("#photoIn").hidden = m !== "photo"; $("#detBox").hidden = m !== "photo"; $("#scanIn").hidden = m !== "scan";
+  $("#photoIn").hidden = m !== "photo"; $("#detBox").hidden = m !== "photo"; $("#wheelBox").hidden = m !== "photo"; $("#scanIn").hidden = m !== "scan";
 }
 $("#modePhoto").onclick = () => { setMode("photo"); compute(); };
 $("#modeScan").onclick = () => { setMode("scan"); if (state.scan) compute(); else setStatus("Nahraj 3D sken (OBJ, STL, GLB nebo PLY)."); };
@@ -774,8 +891,11 @@ for (const [id, key, cv] of [["#fSide", "side", "#cSide"], ["#fFront", "front", 
     const f = e.target.files[0]; if (!f) return;
     try {
       setStatus("Odstraňuji pozadí…"); await tick();
-      if (state.sample) { state.sample = false; state.side = state.front = state.top = null; [ "#cSide", "#cFront", "#cTop"].forEach(c => thumb($(c), null)); }
-      const s = drawableToSil(await loadImageFile(f)); state[key] = s; thumb($(cv), s);
+      if (state.sample) { state.sample = false; state.side = state.front = state.top = null; state.wheels = []; [ "#cSide", "#cFront", "#cTop"].forEach(c => thumb($(c), null)); }
+      let img = await loadImageFile(f);
+      if (AI) img = await aiCutout(img);
+      const s = drawableToSil(img); state[key] = s; thumb($(cv), s);
+      if (key === "side") { setStatus("Hledám kola…"); state.wheels = await aiWheels(s); }
       if (state.side && state.front) compute(); else setStatus("Nahraj ještě " + (!state.side ? "fotku z boku." : "fotku zepředu."));
     } catch (err) { setStatus(err.message || "Fotku se nepodařilo načíst.", true); }
   };
@@ -788,14 +908,18 @@ $("#fScan").onchange = async e => {
 };
 $("#up").onchange = () => state.scan && compute();
 $("#pDet").onchange = () => state.mode === "photo" && compute();
+["#pWheels", "#pWW", "#pSpin"].forEach(id => $(id).onchange = () => state.mode === "photo" && compute());
 $("#run").onclick = compute;
 
 const tabs = [["#t3d", "#p3d"], ["#tSheets", "#pSheets"], ["#tSil", "#pSil"]];
 tabs.forEach(([t, p]) => $(t).onclick = () => { tabs.forEach(([t2, p2]) => { $(t2).setAttribute("aria-selected", t2 === t); $(p2).hidden = p2 !== p; }); if (p === "#p3d" && R) R.size(); });
 
 (async () => {
+  try { const h = await (await fetch("api/health", { cache: "no-store" })).json(); AI = h.ai && h.ai.available ? h.ai : null; } catch (e) { AI = null; }
+  if (!AI) $("#wheelHint").textContent = "Bez AI: kola přidáš ručně kliknutím do boku v záložce Kontrola siluet.";
   const s = sampleImages();
   state.side = drawableToSil(s.side); state.front = drawableToSil(s.front); state.top = drawableToSil(s.top);
+  state.wheels = await aiWheels(state.side);
   thumb($("#cSide"), state.side); thumb($("#cFront"), state.front); thumb($("#cTop"), state.top);
   await compute();
 })();

@@ -86,7 +86,7 @@ def needed(op: str, p: dict, gpu: bool) -> list[str]:
     if op == "bg":
         if p.get("kind") == "white":
             return []
-        if p.get("kind") == "photo":
+        if p.get("kind") in ("photo", "auto"):
             return ["birefnet.onnx"] if gpu else ["isnet-general-use.onnx"]   # na grafice nejlepší model BiRefNet
         return ["isnet-anime.onnx"]
     if op == "select":
@@ -318,6 +318,9 @@ def remove_bg(rgba: np.ndarray, kind: str, soft: bool = False) -> np.ndarray:
     import cv2
     if kind == "white":
         return remove_white(rgba)
+    if kind == "auto":                                  # 3D režim: kresba nebo fotka podle barevnosti
+        f = _flatten(rgba)
+        kind = "anime" if ((f.max(-1).astype(np.int16) - f.min(-1)) < 30).mean() > 0.97 else "photo"
     rgb = _flatten(rgba)
     sat = rgb.max(-1).astype(np.int16) - rgb.min(-1)
     lineart = kind != "photo" and (sat < 30).mean() > 0.97
@@ -724,6 +727,79 @@ def lowpoly(rgba: np.ndarray, colors: int = 8, detail: int = 5, lines: bool = Tr
         ins_f = ins_f | (edge & cv2.dilate(ins_f.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool))
     a = np.where(ins_f, 255, 0).astype(np.uint8)
     return np.dstack([out, a])
+
+
+def detect_wheels(rgba: np.ndarray) -> list:
+    """Kola na fotce/kresbě z boku: tmavé kruhy dole na siluetě. Vrací [[cx, cy, r], ...] v pixelech, zleva doprava."""
+    import cv2
+    h, w = rgba.shape[:2]
+    fg = rgba[..., 3] > 127
+    if fg.all():                                        # bez průhlednosti: objekt = vše kromě barvy okraje
+        fg = _flood_mask(_flatten(rgba)) > 0.5
+    ys, xs = np.nonzero(fg)
+    if len(xs) < 100:
+        return []
+    y0, y1, x0, x1 = ys.min(), ys.max(), xs.min(), xs.max()
+    H, W = y1 - y0 + 1, x1 - x0 + 1
+    gray = cv2.cvtColor(_flatten(rgba), cv2.COLOR_RGB2GRAY)
+    g = cv2.GaussianBlur(gray, (0, 0), max(1.0, H / 300))
+    rmin, rmax = max(6, int(H * 0.10)), max(10, int(min(H * 0.42, W * 0.22)))
+    cands = []
+    for p2 in (0.85, 0.75):
+        cs = cv2.HoughCircles(g, cv2.HOUGH_GRADIENT_ALT, 1.5, rmin * 1.6, param1=60, param2=p2, minRadius=rmin, maxRadius=rmax)
+        if cs is not None:
+            cands += cs[0].tolist()
+        cs = cv2.HoughCircles(g, cv2.HOUGH_GRADIENT, 1.2, rmin * 1.6, param1=100, param2=30, minRadius=rmin, maxRadius=rmax)
+        if cs is not None:
+            cands += cs[0][:20].tolist()
+        if cands:
+            break
+    body = float(np.median(gray[fg]))
+    yy, xx = np.mgrid[0:h, 0:w]
+    out = []
+    for cx, cy, r in cands:
+        if cy < y0 + H * 0.45 or cy + r < y1 - H * 0.2 or cy + r > y1 + r * 0.25:   # kolo je dole a dotýká se spodku
+            continue
+        ix, iy = int(round(cx)), int(round(cy))
+        if not (0 <= ix < w and 0 <= iy < h) or not fg[iy, ix]:
+            continue
+        x_a, x_b, y_a, y_b = max(0, int(cx - r)), min(w, int(cx + r) + 1), max(0, int(cy - r)), min(h, int(cy + r) + 1)
+        d = np.hypot(xx[y_a:y_b, x_a:x_b] - cx, yy[y_a:y_b, x_a:x_b] - cy)
+        ring = (d > 0.72 * r) & (d < 0.97 * r)
+        inside = fg[y_a:y_b, x_a:x_b][d < r].mean()
+        tire = float(np.median(gray[y_a:y_b, x_a:x_b][ring])) if ring.any() else 255
+        score = (body - tire) / 40.0 + inside
+        if inside < 0.85 or tire > body + 10:
+            continue
+        out.append([float(cx), float(cy), float(r), score])
+    # poloměr upřesnit: kolo sahá až na spodek siluety (bez tenkého stínu pod autem)
+    kv = max(3, int(rmin * 0.35)) | 1
+    solid = cv2.morphologyEx(fg.astype(np.uint8), cv2.MORPH_OPEN, np.ones((kv, 1), np.uint8)) > 0
+    for c in out:
+        cx, cy, r = c[0], c[1], c[2]
+        cols = [int(round(cx + dx * r)) for dx in (-0.25, 0, 0.25)]
+        bots = []
+        for x in cols:
+            if 0 <= x < w:
+                col = np.nonzero(solid[int(cy):, x])[0]
+                if len(col):
+                    # první mezera pod středem = konec kola
+                    gaps = np.nonzero(np.diff(col) > 1)[0]
+                    bots.append(int(cy) + (col[gaps[0]] if len(gaps) else col[-1]))
+        if bots:
+            rb = float(np.median(bots)) - cy
+            if r * 0.95 <= rb <= r * 2.0:
+                c[2] = rb
+    # nepřekrývající se, nejlepší napřed
+    out.sort(key=lambda c: -c[3])
+    keep = []
+    for c in out:
+        if all(np.hypot(c[0] - k[0], c[1] - k[1]) > 0.9 * (c[2] + k[2]) for k in keep):
+            keep.append(c)
+    if keep:                                            # kola jednoho auta mají podobnou velikost
+        rm = float(np.median([k[2] for k in keep]))
+        keep = [k for k in keep if 0.7 * rm < k[2] < 1.4 * rm][:6]
+    return [[round(c[0], 1), round(c[1], 1), round(c[2], 1)] for c in sorted(keep, key=lambda c: c[0])]
 
 
 def run(op: str, png: bytes, p: dict) -> bytes:
