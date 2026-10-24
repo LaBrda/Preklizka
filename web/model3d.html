@@ -169,6 +169,7 @@ details summary{cursor:pointer;font-size:13px;font-weight:600}
         <label class="f" style="flex-direction:row;align-items:center;gap:8px;align-self:end"><input id="pSpin" type="checkbox" checked style="width:auto"> Kola se točí</label>
         <p class="hint" style="grid-column:1/-1;margin:0" id="wheelHint">Kola se hledají na fotce z boku. V záložce Kontrola siluet klikni do boku: na kolo = smazat, jinam = přidat kolo.</p>
       </div>
+      <label class="f" id="reliefBox" style="flex-direction:row;align-items:center;gap:8px"><input id="pRelief" type="checkbox" checked style="width:auto"> Zapustit rolety, okna a jiné barevné plochy z boku (reliéf)</label>
       <div class="f" id="detBox"><label for="pDet">Detaily na bocích (z fotky z boku)</label>
         <select id="pDet"><option value="0">Žádné</option><option value="0.985">Málo</option><option value="0.97" selected>Středně</option><option value="0.94">Hodně</option></select></div>
       <details>
@@ -686,6 +687,56 @@ function fitMask(s, W, H) {
   const ctx = o.getContext("2d"); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high"; ctx.drawImage(c, 0, 0, W, H);
   const d = ctx.getImageData(0, 0, W, H).data, m = new Uint8Array(W * H); for (let i = 0; i < W * H; i++) m[i] = d[i * 4 + 3] > 127 ? 1 : 0; return m;
 }
+function fitColor(s, W, H) {
+  const o = document.createElement("canvas"); o.width = W; o.height = H; const x = o.getContext("2d");
+  x.imageSmoothingEnabled = true; x.imageSmoothingQuality = "high"; x.drawImage(s.canvas, s.x0, s.y0, s.w, s.h, 0, 0, W, H);
+  return x.getImageData(0, 0, W, H).data;
+}
+/* reliéf: plochy jiné barvy než karoserie (rolety, okna, pruhy) -> maska v mřížce boku */
+function reliefMask(s, S, nx, nz, res) {
+  const N = nx * nz, col = fitColor(s, nx, nz), inside = erode(S, nx, nz, 2 / res);
+  const hist = new Map();
+  for (let k = 0; k < N; k++) if (inside[k] && col[k * 4 + 3] > 200) { const b = (col[k * 4] >> 4) << 8 | (col[k * 4 + 1] >> 4) << 4 | col[k * 4 + 2] >> 4; hist.set(b, (hist.get(b) || 0) + 1); }
+  let best = -1, bc = 0; for (const [b, c] of hist) if (c > bc) { bc = c; best = b; }
+  if (best < 0) return new Uint8Array(N);
+  let sr = 0, sg = 0, sb = 0, sn = 0;
+  for (let k = 0; k < N; k++) if (inside[k] && ((col[k * 4] >> 4) << 8 | (col[k * 4 + 1] >> 4) << 4 | col[k * 4 + 2] >> 4) === best) { sr += col[k * 4]; sg += col[k * 4 + 1]; sb += col[k * 4 + 2]; sn++; }
+  const body = rgb2lab(sr / sn, sg / sn, sb / sn);
+  let m = new Uint8Array(N);
+  for (let k = 0; k < N; k++) {
+    if (!inside[k]) continue;
+    const c = rgb2lab(col[k * 4], col[k * 4 + 1], col[k * 4 + 2]);
+    if (Math.hypot(c[0] - body[0], c[1] - body[1], c[2] - body[2]) > 30) m[k] = 1;
+  }
+  const r = Math.max(1, 1.0 / res);
+  m = dilate(erode(m, nx, nz, r), nx, nz, r);            // tenké čáry (obrysy, lamely) pryč, zůstanou plochy
+  m = dropSmall(m, nx, nz, 30 / (res * res));
+  return m;
+}
+function dropSmall(m, w, h, minA) {
+  const lab = new Int32Array(w * h), out = new Uint8Array(w * h); let id = 0;
+  for (let s0 = 0; s0 < w * h; s0++) {
+    if (!m[s0] || lab[s0]) continue;
+    const st = [s0], comp = []; lab[s0] = ++id;
+    while (st.length) { const k = st.pop(); comp.push(k); const x = k % w, y = (k / w) | 0;
+      for (const q of [x > 0 ? k - 1 : -1, x < w - 1 ? k + 1 : -1, y > 0 ? k - w : -1, y < h - 1 ? k + w : -1]) if (q >= 0 && m[q] && !lab[q]) { lab[q] = id; st.push(q); } }
+    if (comp.length >= minA) for (const k of comp) out[k] = 1;
+  }
+  return out;
+}
+/* vyříznout reliéf z vrstvy, která je v daném místě zvenku vidět (pod ní musí být další vrstva) */
+function applyRelief(layers, nx, nz, rA, rB, res) {
+  const n = layers.length, N = nx * nz, half = Math.ceil(n / 2), holes = layers.map(() => null);
+  for (let k = 0; k < N; k++) {
+    if (rA[k]) for (let i = 0; i < half; i++) if (layers[i][k]) { if (i + 1 < n && layers[i + 1][k]) (holes[i] = holes[i] || new Uint8Array(N))[k] = 1; break; }
+    if (rB[k]) for (let i = n - 1; i >= half; i--) if (layers[i][k]) { if (i - 1 >= 0 && layers[i - 1][k]) (holes[i] = holes[i] || new Uint8Array(N))[k] = 1; break; }
+  }
+  holes.forEach((h, i) => {
+    if (!h) return;
+    const rim = erode(layers[i], nx, nz, 2 / res);      // okraj vrstvy zůstane, díl drží v jednom kuse
+    for (let k = 0; k < N; k++) if (h[k] && rim[k]) layers[i][k] = 0;
+  });
+}
 function fitGray(s, W, H) {
   const c = document.createElement("canvas"); c.width = s.w; c.height = s.h; const x = c.getContext("2d"), id = x.createImageData(s.w, s.h);
   for (let i = 0; i < s.w * s.h; i++) { const g = s.gray[i]; id.data[i * 4] = id.data[i * 4 + 1] = id.data[i * 4 + 2] = g; id.data[i * 4 + 3] = 255; }
@@ -805,7 +856,7 @@ function params() {
   const num = (id, d) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : d; };
   return { L: num("#pL", 200), t: Math.max(0.5, num("#pT", 3)), dowel: Math.max(0, num("#pD", 4)), wall: Math.max(0, num("#pH", 0)),
     kerf: Math.max(0, num("#pK", 0.15)), numMax: Math.max(0, num("#pN", 5)), res: Math.max(0.1, num("#pR", 0.25)),
-    SW: num("#pSW", 400), SH: num("#pSH", 400), up: $("#up").value, detail: parseFloat($("#pDet").value) || 0,
+    SW: num("#pSW", 400), SH: num("#pSH", 400), up: $("#up").value, detail: parseFloat($("#pDet").value) || 0, relief: $("#pRelief").checked,
     wheelsOn: $("#pWheels").checked, wheelW: Math.max(0, num("#pWW", 0)), spin: $("#pSpin").checked };
 }
 
@@ -850,6 +901,10 @@ async function compute() {
           tw = med > 0 && med < ny * 0.42 ? med * P.res : W * 0.14;
         }
         wheelK = carveWheels(layers, nx, nz, wheelsG, P, tw);
+      }
+      if (P.relief && S0.canvas && n >= 3) {
+        const rA = reliefMask(S0, S, nx, nz, P.res), rB = SL && SR ? reliefMask(SR, S, nx, nz, P.res) : rA;
+        applyRelief(layers, nx, nz, rA, rB, P.res);
       }
     } else {
       const mesh = state.mode === "ai" ? state.aiScan : state.scan;
@@ -1014,7 +1069,7 @@ function show3D(layers, nx, nz, P, H, details = {}, wheels = [], wk = 0) {
 function setMode(m) {
   state.mode = m; $("#modePhoto").setAttribute("aria-pressed", m === "photo"); $("#modeScan").setAttribute("aria-pressed", m === "scan"); $("#modeAi").setAttribute("aria-pressed", m === "ai");
   $("#aiIn").hidden = m !== "ai"; $("#viewHint").hidden = $("#credits").hidden = m !== "photo"; $("#webBox").hidden = m !== "photo" || !state.exe;
-  $("#photoIn").hidden = m !== "photo"; $("#detBox").hidden = m !== "photo"; $("#scanIn").hidden = m !== "scan"; $("#realBox").hidden = m === "photo";
+  $("#photoIn").hidden = m !== "photo"; $("#detBox").hidden = m !== "photo"; $("#reliefBox").hidden = m !== "photo"; $("#scanIn").hidden = m !== "scan"; $("#realBox").hidden = m === "photo";
   $("#wheelHint").textContent = m !== "photo" ? "Kola se hledají na boku modelu. V záložce Kontrola siluet klikni do boku: na kolo = smazat, jinam = přidat kolo."
     : AI ? "Kola se hledají na fotce z boku. V záložce Kontrola siluet klikni do boku: na kolo = smazat, jinam = přidat kolo." : "Bez AI: kola přidáš ručně kliknutím do boku v záložce Kontrola siluet.";
   if (m === "photo") $("#realHint").textContent = "";
@@ -1131,6 +1186,7 @@ $("#fAi").onchange = async e => {
   } catch (err) { setStatus(err.message || String(err), true); btn.disabled = false; }
 };
 $("#pDet").onchange = () => state.mode === "photo" && compute();
+$("#pRelief").onchange = () => state.mode === "photo" && compute();
 ["#pWheels", "#pWW", "#pSpin"].forEach(id => $(id).onchange = () => (state.mode === "photo" || (state.mode === "ai" ? state.aiScan : state.scan)) && compute());
 $("#run").onclick = compute;
 
