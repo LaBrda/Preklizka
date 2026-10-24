@@ -1,0 +1,802 @@
+<title>Překližkové vrstvy – 3D model</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Dílna jako v hlavní appce: vlevo parametry, vpravo výsledek (3D, desky pro laser, siluety). */
+:root{
+  --bg:#f3efe8; --surface:#fbf9f5; --line:#ddd5c8; --fg:#23211e; --muted:#6c665d;
+  --board:#ecdcc0; --cut:#c43a1a; --engrave:#2b55c9; --detail:#2f8a3a; --accent:#b5481f; --accent-fg:#ffffff;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#171615; --surface:#201f1d; --line:#36332f; --fg:#ece6dc; --muted:#a39b8f;
+  --board:#3a3226; --cut:#ff6a4d; --engrave:#7f9dff; --detail:#6fd17b; --accent:#e07a4d; --accent-fg:#1a1210; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#171615; --surface:#201f1d; --line:#36332f; --fg:#ece6dc; --muted:#a39b8f;
+  --board:#3a3226; --cut:#ff6a4d; --engrave:#7f9dff; --detail:#6fd17b; --accent:#e07a4d; --accent-fg:#1a1210; color-scheme:dark}
+[hidden]{display:none!important}
+html,body{background:var(--bg);color:var(--fg)}
+body{font-family:var(--body);font-size:15px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px}
+.wrap{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px}
+h1{font:700 2.1rem/1 var(--display);letter-spacing:.01em;margin:0;text-wrap:balance}
+.ver{font:500 .9rem var(--mono);color:var(--muted);vertical-align:middle}
+.appsw{margin-left:auto;display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.appsw a,.appsw span{font:600 .95rem var(--display);letter-spacing:.03em;text-transform:uppercase;padding:6px 12px;color:var(--muted);text-decoration:none}
+.appsw span{background:var(--fg);color:var(--bg)}
+.appsw a:hover{color:var(--fg)}
+header p{margin:0;color:var(--muted);max-width:62ch}
+.grid{display:grid;grid-template-columns:340px minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:860px){.grid{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:16px;min-width:0}
+h2{font-family:var(--display);font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0}
+.seg{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{all:unset;cursor:pointer;text-align:center;padding:9px 6px;font-weight:600;font-size:14px;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+.seg button:focus-visible,.btn:focus-visible,.tabs button:focus-visible,.drop:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.drops{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.drop{position:relative;border:1px dashed var(--line);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px;cursor:pointer;min-width:0}
+.drop input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
+.drop .lbl{font-size:12px;font-weight:600}
+.drop .lbl small{font-weight:400;color:var(--muted)}
+.drop canvas{width:100%;height:56px;object-fit:contain;background:var(--bg);border-radius:4px}
+.scan{display:flex;flex-direction:column;gap:10px}
+.scan .drop canvas{display:none}
+.scan .drop{padding:14px}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
+.f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.f label{font-size:12px;color:var(--muted)}
+.f input,.f select{font:inherit;font-family:var(--mono);font-size:14px;padding:7px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);min-width:0;width:100%;box-sizing:border-box}
+.f.wide{grid-column:1/-1}
+.board{display:flex;align-items:center;gap:6px}
+.board span{color:var(--muted)}
+.btn{all:unset;box-sizing:border-box;cursor:pointer;text-align:center;padding:10px 14px;border-radius:8px;font-weight:600;background:var(--accent);color:var(--accent-fg)}
+.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--line);padding:7px 12px;font-size:13px}
+.btn[disabled]{opacity:.5;cursor:default}
+.status{font-size:13px;color:var(--muted);min-height:1.5em}
+.status.err{color:var(--cut)}
+.stats{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-family:var(--mono);font-size:13px;padding:5px 10px;border-radius:999px;background:var(--bg);border:1px solid var(--line);font-variant-numeric:tabular-nums}
+.chip b{font-weight:500;color:var(--muted);font-family:var(--body);margin-right:6px}
+.sample{font-size:12px;font-weight:600;color:var(--engrave)}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line)}
+.tabs button{all:unset;cursor:pointer;padding:8px 12px;font-weight:600;font-size:14px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button[aria-selected="true"]{color:var(--fg);border-color:var(--accent)}
+#view3d{height:min(62vh,520px);border-radius:8px;background:var(--bg);touch-action:none;position:relative}
+#view3d canvas{display:block;width:100%;height:100%}
+.hint{font-size:12px;color:var(--muted)}
+.sheets{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.sheet{display:flex;flex-direction:column;gap:8px;min-width:0}
+.sheet .svgbox{background:var(--board);border-radius:6px;overflow:hidden;line-height:0}
+.sheet .svgbox svg{width:100%;height:auto}
+.sheet .row{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--muted);align-items:center}
+.legend i{display:inline-block;width:18px;height:0;border-top:2px solid;vertical-align:middle;margin-right:6px}
+.sil{display:flex;flex-wrap:wrap;gap:12px}
+.sil figure{margin:0;display:flex;flex-direction:column;gap:4px;min-width:0;flex:1 1 180px}
+.sil canvas{width:100%;height:auto;background:var(--bg);border-radius:6px}
+.sil figcaption{font-size:12px;color:var(--muted)}
+.dowels{font-size:13px;color:var(--muted);font-family:var(--mono)}
+details summary{cursor:pointer;font-size:13px;font-weight:600}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Překližkové vrstvy <span class="ver">v__VERSION__</span></h1>
+    <nav class="appsw" aria-label="Režim"><a href="/">Obrázek</a><span aria-current="page">3D model</span></nav>
+    <p>Z fotek nebo 3D skenu nařeže model na vrstvy pro laser. Vrstvy se lepí vedle sebe a spojí kolíky. Vše se počítá jen v tomto prohlížeči.</p>
+  </header>
+
+  <div class="grid">
+    <aside class="panel" aria-label="Vstup a parametry">
+      <div class="seg" role="group" aria-label="Zdroj">
+        <button id="modePhoto" type="button" aria-pressed="true">Fotky</button>
+        <button id="modeScan" type="button" aria-pressed="false">3D sken</button>
+      </div>
+
+      <div id="photoIn" class="drops">
+        <label class="drop"><span class="lbl">Bok <small>čelem doleva</small></span><canvas id="cSide" width="160" height="56"></canvas><input id="fSide" type="file" accept="image/*"></label>
+        <label class="drop"><span class="lbl">Předek</span><canvas id="cFront" width="160" height="56"></canvas><input id="fFront" type="file" accept="image/*"></label>
+        <label class="drop"><span class="lbl">Shora <small>volitelné</small></span><canvas id="cTop" width="160" height="56"></canvas><input id="fTop" type="file" accept="image/*"></label>
+      </div>
+
+      <div id="scanIn" class="scan" hidden>
+        <label class="drop"><span class="lbl" id="scanName">Vyber sken <small>OBJ, STL, GLB nebo PLY</small></span><canvas></canvas><input id="fScan" type="file" accept=".obj,.stl,.glb,.ply"></label>
+        <div class="f"><label for="up">Osa, která míří nahoru</label>
+          <select id="up"><option value="y">Y (skeny z mobilu)</option><option value="z">Z (CAD, 3D tisk)</option><option value="-y">−Y</option><option value="-z">−Z</option><option value="x">X</option><option value="-x">−X</option></select></div>
+      </div>
+
+      <div class="fields">
+        <div class="f"><label for="pL">Délka modelu (mm)</label><input id="pL" type="number" min="20" step="5" value="200"></div>
+        <div class="f"><label for="pT">Tloušťka překližky (mm)</label><input id="pT" type="number" min="1" step="0.5" value="3"></div>
+        <div class="f"><label for="pD">Kolík Ø (mm, 0 = bez)</label><input id="pD" type="number" min="0" step="0.5" value="4"></div>
+        <div class="f"><label for="pH">Dutina, stěna (mm, 0 = plné)</label><input id="pH" type="number" min="0" step="1" value="6"></div>
+        <div class="f wide"><label for="pSW">Deska (mm)</label>
+          <div class="board"><input id="pSW" type="number" min="50" step="10" value="400" aria-label="Šířka desky"><span>×</span><input id="pSH" type="number" min="50" step="10" value="400" aria-label="Výška desky"></div></div>
+      </div>
+      <div class="f" id="detBox"><label for="pDet">Detaily na bocích (z fotky z boku)</label>
+        <select id="pDet"><option value="0">Žádné</option><option value="0.985">Málo</option><option value="0.97" selected>Středně</option><option value="0.94">Hodně</option></select></div>
+      <details>
+        <summary>Laser a přesnost</summary>
+        <div class="fields" style="margin-top:10px">
+          <div class="f"><label for="pK">Kerf, šířka řezu (mm)</label><input id="pK" type="number" min="0" step="0.05" value="0.15"></div>
+          <div class="f"><label for="pN">Číslo vrstvy, max výška (mm)</label><input id="pN" type="number" min="0" step="1" value="5"></div>
+          <div class="f"><label for="pR">Rozlišení výpočtu (mm/px)</label><input id="pR" type="number" min="0.1" step="0.05" value="0.25"></div>
+        </div>
+      </details>
+      <button id="run" class="btn" type="button">Spočítat vrstvy</button>
+      <div id="status" class="status" role="status"></div>
+    </aside>
+
+    <section class="panel" aria-label="Výsledek">
+      <div class="stats" id="stats"></div>
+      <div class="tabs" role="tablist">
+        <button role="tab" id="t3d" aria-selected="true" type="button">3D náhled</button>
+        <button role="tab" id="tSheets" aria-selected="false" type="button">Desky pro laser</button>
+        <button role="tab" id="tSil" aria-selected="false" type="button">Kontrola siluet</button>
+      </div>
+      <div id="p3d">
+        <div id="view3d"></div>
+        <p class="hint">Táhni pro otočení, kolečkem nebo dvěma prsty přibliž.</p>
+      </div>
+      <div id="pSheets" hidden>
+        <div class="legend"><span><i style="border-color:var(--cut)"></i>řez</span><span><i style="border-color:var(--detail)"></i>gravír detailů na bocích</span><span><i style="border-color:var(--engrave)"></i>gravír čísla vrstvy</span>
+          <button id="zipBtn" class="btn ghost" type="button">Uložit vše jako ZIP</button></div>
+        <div class="dowels" id="dowelInfo"></div>
+        <div class="sheets" id="sheets"></div>
+      </div>
+      <div id="pSil" hidden>
+        <p class="hint">Bílá je to, co program považuje za model. Pokud silueta prosakuje do pozadí, vyfoť model na jednobarevném pozadí nebo použij PNG s průhledností.</p>
+        <div class="sil" id="sil"></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!--VENDOR-->
+
+<script id="core">
+/* ===== čisté výpočty (bez DOM) ===== */
+const INF = 1e20;
+
+function dt1(f, d, n, v, z) {
+  let k = 0; v[0] = 0; z[0] = -INF; z[1] = INF;
+  for (let q = 1; q < n; q++) {
+    let s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+    while (s <= z[k]) { k--; s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]); }
+    k++; v[k] = q; z[k] = s; z[k + 1] = INF;
+  }
+  k = 0;
+  for (let q = 0; q < n; q++) { while (z[k + 1] < q) k++; const dq = q - v[k]; d[q] = dq * dq + f[v[k]]; }
+}
+
+/* vzdálenost každého pixelu masky k nejbližší nule; outside = hodnota okolí obrázku (0/1) */
+function edt(mask, w, h, outside) {
+  const W = w + 2, H = h + 2, g = new Float64Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const inn = (x > 0 && y > 0 && x <= w && y <= h) ? mask[(y - 1) * w + x - 1] : outside;
+    g[y * W + x] = inn ? INF : 0;
+  }
+  const n = Math.max(W, H), f = new Float64Array(n), d = new Float64Array(n), v = new Int32Array(n), z = new Float64Array(n + 1);
+  for (let x = 0; x < W; x++) { for (let y = 0; y < H; y++) f[y] = g[y * W + x]; dt1(f, d, H, v, z); for (let y = 0; y < H; y++) g[y * W + x] = d[y]; }
+  for (let y = 0; y < H; y++) { const o = y * W; for (let x = 0; x < W; x++) f[x] = g[o + x]; dt1(f, d, W, v, z); for (let x = 0; x < W; x++) g[o + x] = d[x]; }
+  const out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) out[y * w + x] = Math.sqrt(g[(y + 1) * W + x + 1]);
+  return out;
+}
+const invert = m => { const o = new Uint8Array(m.length); for (let i = 0; i < m.length; i++) o[i] = m[i] ? 0 : 1; return o; };
+function erode(m, w, h, r) { const d = edt(m, w, h, 0), o = new Uint8Array(m.length); for (let i = 0; i < o.length; i++) o[i] = d[i] > r ? 1 : 0; return o; }
+function dilate(m, w, h, r) { const d = edt(invert(m), w, h, 1), o = new Uint8Array(m.length); for (let i = 0; i < o.length; i++) o[i] = d[i] <= r ? 1 : 0; return o; }
+
+function largestComponent(m, w, h) {
+  const lab = new Int32Array(w * h), st = new Int32Array(w * h); let best = 0, bestN = 0, id = 0;
+  for (let s = 0; s < m.length; s++) {
+    if (!m[s] || lab[s]) continue;
+    id++; let sp = 0, cnt = 0; st[sp++] = s; lab[s] = id;
+    while (sp) {
+      const p = st[--sp], x = p % w, y = (p / w) | 0; cnt++;
+      if (x > 0 && m[p - 1] && !lab[p - 1]) { lab[p - 1] = id; st[sp++] = p - 1; }
+      if (x < w - 1 && m[p + 1] && !lab[p + 1]) { lab[p + 1] = id; st[sp++] = p + 1; }
+      if (y > 0 && m[p - w] && !lab[p - w]) { lab[p - w] = id; st[sp++] = p - w; }
+      if (y < h - 1 && m[p + w] && !lab[p + w]) { lab[p + w] = id; st[sp++] = p + w; }
+    }
+    if (cnt > bestN) { bestN = cnt; best = id; }
+  }
+  const o = new Uint8Array(w * h); for (let i = 0; i < o.length; i++) o[i] = lab[i] === best && best ? 1 : 0; return o;
+}
+function fillHoles(m, w, h) {
+  const out = new Uint8Array(w * h).fill(1), st = new Int32Array(w * h); let sp = 0;
+  const push = p => { if (!m[p] && out[p]) { out[p] = 0; st[sp++] = p; } };
+  for (let x = 0; x < w; x++) { push(x); push((h - 1) * w + x); }
+  for (let y = 0; y < h; y++) { push(y * w); push(y * w + w - 1); }
+  while (sp) { const p = st[--sp], x = p % w, y = (p / w) | 0;
+    if (x > 0) push(p - 1); if (x < w - 1) push(p + 1); if (y > 0) push(p - w); if (y < h - 1) push(p + w); }
+  return out;
+}
+function cropMask(m, w, h) {
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (m[y * w + x]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < 0) return null;
+  const W = x1 - x0 + 1, H = y1 - y0 + 1, o = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) o[y * W + x] = m[(y + y0) * w + x + x0];
+  return { m: o, w: W, h: H, x0, y0 };
+}
+function otsu(vals) {
+  const hist = new Float64Array(256); for (const v of vals) hist[v]++;
+  const total = vals.length; let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
+  let sB = 0, wB = 0, best = 0, th = 0;
+  for (let t = 0; t < 256; t++) { wB += hist[t]; if (!wB) continue; const wF = total - wB; if (!wF) break;
+    sB += t * hist[t]; const mB = sB / wB, mF = (sum - sB) / wF, b = wB * wF * (mB - mF) ** 2; if (b > best) { best = b; th = t; } }
+  return th;
+}
+function rgb2lab(r, g, b) {
+  const l = c => { c /= 255; return c > 0.04045 ? ((c + 0.055) / 1.055) ** 2.4 : c / 12.92; };
+  r = l(r); g = l(g); b = l(b);
+  let x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047, y = r * 0.2126 + g * 0.7152 + b * 0.0722, z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883;
+  const f = t => t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
+  x = f(x); y = f(y); z = f(z);
+  return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+}
+/* RGBA pixely -> silueta (oříznutá, bez děr) */
+function silhouette(data, w, h) {
+  let alpha = false; for (let i = 3; i < data.length; i += 4) if (data[i] < 250) { alpha = true; break; }
+  let m = new Uint8Array(w * h);
+  if (alpha) { for (let i = 0; i < w * h; i++) m[i] = data[i * 4 + 3] > 127 ? 1 : 0; }
+  else {
+    const lab = new Float32Array(w * h * 3);
+    for (let i = 0; i < w * h; i++) { const c = rgb2lab(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]); lab[i * 3] = c[0]; lab[i * 3 + 1] = c[1]; lab[i * 3 + 2] = c[2]; }
+    const border = [];
+    for (let x = 0; x < w; x++) border.push(x, (h - 1) * w + x);
+    for (let y = 0; y < h; y++) border.push(y * w, y * w + w - 1);
+    const med = [0, 1, 2].map(k => { const a = border.map(p => lab[p * 3 + k]).sort((p, q) => p - q); return a[a.length >> 1]; });
+    const d = new Float32Array(w * h); let mx = 1e-6;
+    for (let i = 0; i < w * h; i++) { d[i] = Math.hypot(lab[i * 3] - med[0], lab[i * 3 + 1] - med[1], lab[i * 3 + 2] - med[2]); if (d[i] > mx) mx = d[i]; }
+    const q = new Uint8Array(w * h); for (let i = 0; i < w * h; i++) q[i] = Math.round(d[i] / mx * 255);
+    const th = otsu(q); for (let i = 0; i < w * h; i++) m[i] = q[i] > th ? 1 : 0;
+  }
+  m = erode(dilate(m, w, h, 3), w, h, 3);   // zavřít mezery
+  m = dilate(erode(m, w, h, 3), w, h, 3);   // odstranit šum
+  m = largestComponent(m, w, h);
+  m = fillHoles(m, w, h);
+  return cropMask(m, w, h);
+}
+
+/* vrstvy z trojúhelníků (X délka, Y šířka, Z výška v mm); vyplnění nenulovým pravidlem -> překryvy se sjednotí */
+function meshLayers(tri, L, W, H, t, res) {
+  const nx = Math.round(L / res), nz = Math.max(1, Math.round(H / res)), n = Math.max(1, Math.round(W / t));
+  const nt = tri.length / 9, ymin = new Float32Array(nt), ymax = new Float32Array(nt);
+  for (let k = 0; k < nt; k++) { const o = k * 9; ymin[k] = Math.min(tri[o + 1], tri[o + 4], tri[o + 7]); ymax[k] = Math.max(tri[o + 1], tri[o + 4], tri[o + 7]); }
+  const layers = [];
+  for (let i = 0; i < n; i++) {
+    const y0 = (i + 0.5) * W / n, rows = Array.from({ length: nz }, () => []);
+    for (let k = 0; k < nt; k++) {
+      if (ymin[k] > y0 || ymax[k] < y0) continue;
+      const o = k * 9, P = [];
+      for (let e = 0; e < 3; e++) {
+        const a = o + e * 3, b = o + ((e + 1) % 3) * 3, ya = tri[a + 1], yb = tri[b + 1];
+        if ((ya >= y0) !== (yb >= y0)) { const s = (y0 - ya) / (yb - ya); P.push([tri[a] + s * (tri[b] - tri[a]), tri[a + 2] + s * (tri[b + 2] - tri[a + 2])]); }
+      }
+      if (P.length !== 2) continue;
+      // normála trojúhelníku -> směr úsečky (konzistentní orientace pro winding)
+      const ux = tri[o + 3] - tri[o], uy = tri[o + 4] - tri[o + 1], uz = tri[o + 5] - tri[o + 2];
+      const vx = tri[o + 6] - tri[o], vy = tri[o + 7] - tri[o + 1], vz = tri[o + 8] - tri[o + 2];
+      const mx = uy * vz - uz * vy, mz = ux * vy - uy * vx;
+      let [p, q] = P; if ((q[0] - p[0]) * mz - (q[1] - p[1]) * mx < 0) [p, q] = [q, p];
+      const pc = p[0] / res - 0.5, pr = (H - p[1]) / res - 0.5, qc = q[0] / res - 0.5, qr = (H - q[1]) / res - 0.5;
+      if (pr === qr) continue;
+      const w = qr > pr ? 1 : -1, r0 = Math.max(0, Math.ceil(Math.min(pr, qr))), r1 = Math.min(nz - 1, Math.ceil(Math.max(pr, qr)) - 1);
+      for (let r = r0; r <= r1; r++) rows[r].push(pc + (r - pr) / (qr - pr) * (qc - pc), w);
+    }
+    const m = new Uint8Array(nx * nz);
+    for (let r = 0; r < nz; r++) {
+      const c = rows[r]; if (!c.length) continue;
+      const idx = []; for (let j = 0; j < c.length; j += 2) idx.push(j); idx.sort((a, b) => c[a] - c[b]);
+      let wind = 0;
+      for (let j = 0; j < idx.length - 1; j++) {
+        wind += c[idx[j] + 1];
+        if (wind !== 0) { const a = Math.max(0, Math.ceil(c[idx[j]])), b = Math.min(nx - 1, Math.ceil(c[idx[j + 1]]) - 1); for (let x = a; x <= b; x++) m[r * nx + x] = 1; }
+      }
+    }
+    layers.push(m);
+  }
+  return { layers, nx, nz };
+}
+
+/* obrysy masky jako smyčky v mm; level < 0 = posun ven (kerf) */
+const MS = [[], [[3, 2]], [[2, 1]], [[3, 1]], [[0, 1]], [[3, 2], [0, 1]], [[0, 2]], [[3, 0]], [[3, 0]], [[0, 2]], [[3, 0], [2, 1]], [[0, 1]], [[3, 1]], [[2, 1]], [[3, 2]], []];
+function contours(mask, w, h, res, levelMm) {
+  const din = edt(mask, w, h, 0), dout = edt(invert(mask), w, h, 1), W = w + 2, H = h + 2, c = levelMm / res;
+  const s = new Float32Array(W * H).fill(-1e3);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = y * w + x; s[(y + 1) * W + x + 1] = mask[i] ? din[i] - 0.5 : 0.5 - dout[i]; }
+  const pt = new Map(), adj = new Map();
+  const ep = id => { if (pt.has(id)) return; const cell = id >> 1, x = cell % W, y = (cell / W) | 0, bx = (id & 1) ? x : x + 1, by = (id & 1) ? y + 1 : y;
+    const va = s[y * W + x], vb = s[by * W + bx], t = (c - va) / (vb - va); pt.set(id, [x + t * (bx - x), y + t * (by - y)]); };
+  const link = (a, b) => { ep(a); ep(b); if (!adj.has(a)) adj.set(a, []); if (!adj.has(b)) adj.set(b, []); adj.get(a).push(b); adj.get(b).push(a); };
+  for (let y = 0; y < H - 1; y++) for (let x = 0; x < W - 1; x++) {
+    const k = (s[y * W + x] >= c ? 8 : 0) | (s[y * W + x + 1] >= c ? 4 : 0) | (s[(y + 1) * W + x + 1] >= c ? 2 : 0) | (s[(y + 1) * W + x] >= c ? 1 : 0);
+    if (k === 0 || k === 15) continue;
+    const E = [(y * W + x) * 2, (y * W + x + 1) * 2 + 1, ((y + 1) * W + x) * 2, (y * W + x) * 2 + 1];
+    for (const [a, b] of MS[k]) link(E[a], E[b]);
+  }
+  const seen = new Set(), loops = [];
+  for (const start of adj.keys()) {
+    if (seen.has(start)) continue;
+    const loop = []; let prev = -1, cur = start;
+    for (;;) {
+      seen.add(cur); const p = pt.get(cur); loop.push([(p[0] - 0.5) * res, (p[1] - 0.5) * res]);
+      const nb = adj.get(cur), nx = nb[0] !== prev ? nb[0] : nb[1]; prev = cur; cur = nx;
+      if (cur === undefined || seen.has(cur)) break;
+    }
+    if (loop.length >= 3) loops.push(loop);
+  }
+  return loops;
+}
+function simplify(pts, tol) {
+  const n = pts.length; if (n < 5) return pts;
+  let far = 0, fd = -1; for (let i = 1; i < n; i++) { const d = (pts[i][0] - pts[0][0]) ** 2 + (pts[i][1] - pts[0][1]) ** 2; if (d > fd) { fd = d; far = i; } }
+  const keep = new Uint8Array(n); keep[0] = keep[far] = 1;
+  const P = i => pts[i % n], st = [[0, far], [far, n]], t2 = tol * tol;
+  while (st.length) {
+    const [a, b] = st.pop(); if (b - a < 2) continue;
+    const A = P(a), B = P(b), dx = B[0] - A[0], dy = B[1] - A[1], L2 = dx * dx + dy * dy || 1e-12;
+    let mi = -1, md = -1;
+    for (let i = a + 1; i < b; i++) { const p = P(i); let u = ((p[0] - A[0]) * dx + (p[1] - A[1]) * dy) / L2; u = Math.max(0, Math.min(1, u));
+      const d = (p[0] - A[0] - u * dx) ** 2 + (p[1] - A[1] - u * dy) ** 2; if (d > md) { md = d; mi = i; } }
+    if (md > t2) { keep[mi] = 1; st.push([a, mi], [mi, b]); }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
+function pip(p, poly) {
+  let ins = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a[1] > p[1]) !== (b[1] > p[1]) && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0]) ins = !ins;
+  }
+  return ins;
+}
+
+function simplifyOpen(pts, tol) {
+  const n = pts.length; if (n < 3) return pts;
+  const keep = new Uint8Array(n); keep[0] = keep[n - 1] = 1; const st = [[0, n - 1]], t2 = tol * tol;
+  while (st.length) {
+    const [a, b] = st.pop(); if (b - a < 2) continue;
+    const A = pts[a], B = pts[b], dx = B[0] - A[0], dy = B[1] - A[1], L2 = dx * dx + dy * dy || 1e-12;
+    let mi = -1, md = -1;
+    for (let i = a + 1; i < b; i++) { const p = pts[i]; let u = ((p[0] - A[0]) * dx + (p[1] - A[1]) * dy) / L2; u = Math.max(0, Math.min(1, u));
+      const d = (p[0] - A[0] - u * dx) ** 2 + (p[1] - A[1] - u * dy) ** 2; if (d > md) { md = d; mi = i; } }
+    if (md > t2) { keep[mi] = 1; st.push([a, mi], [mi, b]); }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
+/* hrany z boční fotky (Canny) uvnitř masky -> čáry v mm; q = percentil síly hrany */
+function edgeLines(gray, inside, w, h, res, q, keyOf = () => 0) {
+  const N = w * h, a = Float32Array.from(gray), b = new Float32Array(N), r = Math.max(1, Math.round(0.25 / res));
+  const cl = (v, m) => v < 0 ? 0 : v > m ? m : v;
+  const boxH = (src, dst) => { for (let y = 0; y < h; y++) { const o = y * w; let s = 0; for (let x = -r; x <= r; x++) s += src[o + cl(x, w - 1)];
+      for (let x = 0; x < w; x++) { dst[o + x] = s / (2 * r + 1); s += src[o + cl(x + r + 1, w - 1)] - src[o + cl(x - r, w - 1)]; } } };
+  const boxV = (src, dst) => { for (let x = 0; x < w; x++) { let s = 0; for (let y = -r; y <= r; y++) s += src[cl(y, h - 1) * w + x];
+      for (let y = 0; y < h; y++) { dst[y * w + x] = s / (2 * r + 1); s += src[cl(y + r + 1, h - 1) * w + x] - src[cl(y - r, h - 1) * w + x]; } } };
+  for (let k = 0; k < 2; k++) { boxH(a, b); boxV(b, a); }
+  const mag = new Float32Array(N), bin = new Uint8Array(N);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const p = y * w + x, A = a;
+    const gx = A[p - w + 1] + 2 * A[p + 1] + A[p + w + 1] - A[p - w - 1] - 2 * A[p - 1] - A[p + w - 1];
+    const gy = A[p + w - 1] + 2 * A[p + w] + A[p + w + 1] - A[p - w - 1] - 2 * A[p - w] - A[p - w + 1];
+    mag[p] = Math.hypot(gx, gy); const d = ((Math.atan2(gy, gx) * 180 / Math.PI) + 180) % 180;
+    bin[p] = d < 22.5 || d >= 157.5 ? 0 : d < 67.5 ? 1 : d < 112.5 ? 2 : 3;
+  }
+  const off = [[1, -1], [w + 1, -w - 1], [w, -w], [w - 1, -w + 1]], nms = new Float32Array(N), vals = [];
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const p = y * w + x, m = mag[p]; if (!inside[p]) continue; vals.push(m); if (!m) continue; const [o1, o2] = off[bin[p]];
+    if (m >= mag[p + o1] && m >= mag[p + o2]) nms[p] = m;
+  }
+  if (!vals.length) return [];
+  vals.sort((u, v) => u - v);
+  const hi = Math.max(40, vals[Math.min(vals.length - 1, Math.floor(q * vals.length))]), lo = hi * 0.4;
+  const E = new Uint8Array(N), st = []; for (let p = 0; p < N; p++) if (nms[p] >= hi) { E[p] = 1; st.push(p); }
+  const nb = [1, -1, w, -w, w + 1, w - 1, -w + 1, -w - 1];
+  while (st.length) { const p = st.pop(), x = p % w; for (const d of nb) { const q2 = p + d; if (q2 < 0 || q2 >= N || Math.abs(q2 % w - x) > 1) continue; if (!E[q2] && nms[q2] >= lo) { E[q2] = 1; st.push(q2); } } }
+  const vis = new Uint8Array(N), lines = [];
+  const step = p => { const x = p % w; for (const d of nb) { const q2 = p + d; if (q2 < 0 || q2 >= N || Math.abs(q2 % w - x) > 1) continue; if (E[q2] && !vis[q2]) return q2; } return -1; };
+  for (let p = 0; p < N; p++) {
+    if (!E[p] || vis[p]) continue; vis[p] = 1;
+    const fwd = [p], bwd = []; let c = p, n2;
+    while ((n2 = step(c)) >= 0) { vis[n2] = 1; fwd.push(n2); c = n2; }
+    c = p; while ((n2 = step(c)) >= 0) { vis[n2] = 1; bwd.push(n2); c = n2; }
+    const px = [...bwd.reverse(), ...fwd];
+    if (px.length * res < 1.5) continue;
+    // rozdělit podle klíče (vrstva, na které je místo zvenku vidět)
+    let run = [], key = keyOf(px[0]);
+    const flush = () => { if (key >= 0 && run.length * res >= 1.5) lines.push({ key, pts: simplifyOpen(run.map(k => [(k % w + 0.5) * res, (((k / w) | 0) + 0.5) * res]), 0.12) }); };
+    for (const k of px) { const kk = keyOf(k); if (kk !== key) { flush(); run = []; key = kk; } run.push(k); }
+    flush();
+  }
+  return lines;
+}
+
+const SEG = { a: [0, 0, 1, 0], b: [1, 0, 1, 1], c: [1, 1, 1, 2], d: [0, 2, 1, 2], e: [0, 1, 0, 2], f: [0, 0, 0, 1], g: [0, 1, 1, 1] };
+const DIG = { 0: "abcdef", 1: "bc", 2: "abged", 3: "abgcd", 4: "fgbc", 5: "afgcd", 6: "afgedc", 7: "abc", 8: "abcdefg", 9: "abcdfg" };
+function numberPath(s, cx, cy, h) {
+  const w = h / 2, gap = h * 0.3, x0 = cx - (s.length * w + (s.length - 1) * gap) / 2, y0 = cy - h / 2, out = [];
+  [...s].forEach((ch, k) => { const ox = x0 + k * (w + gap);
+    for (const sg of DIG[ch]) { const [a, b, c, d] = SEG[sg]; out.push(`M${(ox + a * w).toFixed(2)},${(y0 + b * h / 2).toFixed(2)} L${(ox + c * w).toFixed(2)},${(y0 + d * h / 2).toFixed(2)}`); } });
+  return out.join(" ");
+}
+
+/* hlavní výpočet: z masek vrstev -> díly a desky */
+function buildParts(layers, nx, nz, P) {
+  const { res, t, dowel, wall, kerf, numMax } = P, n = layers.length, N = nx * nz;
+  const rpx = dowel / 2 / res, dowels = [];
+  const inner = n > 2 ? Array.from({ length: n - 2 }, (_, i) => i + 1) : Array.from({ length: n }, (_, i) => i);
+  if (dowel > 0 && inner.length) {
+    const er = new Map(inner.map(i => [i, erode(layers[i], nx, nz, rpx + 2 / res)]));
+    const cnt = new Int16Array(N); for (const e of er.values()) for (let k = 0; k < N; k++) cnt[k] += e[k];
+    for (const [x0, x1] of [[0, nx >> 1], [nx >> 1, nx]]) {
+      let mx = 0; for (let y = 0; y < nz; y++) for (let x = x0; x < x1; x++) mx = Math.max(mx, cnt[y * nx + x]);
+      if (mx < 2) continue;
+      const best = new Uint8Array(N); for (let y = 0; y < nz; y++) for (let x = x0; x < x1; x++) best[y * nx + x] = cnt[y * nx + x] === mx ? 1 : 0;
+      const d = edt(best, nx, nz, 0); let dm = 0; for (let k = 0; k < N; k++) if (d[k] > dm) dm = d[k];
+      const cand = []; let zs = 0; for (let k = 0; k < N; k++) if (d[k] > 0 && d[k] >= 0.9 * dm) { cand.push(k); zs += (k / nx) | 0; }
+      const zc = zs / cand.length, xc = (x0 + x1) / 2; let bk = cand[0], bd = Infinity;
+      for (const k of cand) { const dd = (k % nx - xc) ** 2 + (((k / nx) | 0) - zc) ** 2; if (dd < bd) { bd = dd; bk = k; } }
+      dowels.push({ x: bk % nx, z: (bk / nx) | 0, layers: new Set(inner.filter(i => er.get(i)[bk])) });
+    }
+  }
+  const disc = (m, x, z, r, v) => { const r2 = r * r; for (let y = Math.max(0, Math.floor(z - r)); y <= Math.min(nz - 1, Math.ceil(z + r)); y++) for (let xx = Math.max(0, Math.floor(x - r)); xx <= Math.min(nx - 1, Math.ceil(x + r)); xx++) if ((xx - x) ** 2 + (y - z) ** 2 <= r2) m[y * nx + xx] = v; };
+  const final = layers.map(l => l.slice());
+  if (wall > 0 && n > 2) {
+    // svislý můstek přes kolík: díl zůstane v jednom kuse, dutina se rozdělí na komory
+    const keep = new Uint8Array(N), bw = rpx + wall / res;
+    for (const d of dowels) for (let y = 0; y < nz; y++) for (let x = Math.max(0, Math.floor(d.x - bw)); x <= Math.min(nx - 1, Math.ceil(d.x + bw)); x++) keep[y * nx + x] = 1;
+    for (let i = 1; i < n - 1; i++) {
+      const inter = new Uint8Array(N); for (let k = 0; k < N; k++) inter[k] = layers[i - 1][k] & layers[i][k] & layers[i + 1][k];
+      const core = erode(inter, nx, nz, wall / res);
+      for (let k = 0; k < N; k++) if (core[k] && !keep[k]) final[i][k] = 0;
+    }
+  }
+  // detaily z boční fotky: každá čára na vrstvu, která je v tom místě zvenku vidět (okna jsou na užší kabině, ne na krajní vrstvě)
+  // strana A = první polovina vrstev, strana B = druhá polovina (díly se zrcadlí, aby gravír byl venku)
+  const details = {}, half = Math.ceil(n / 2);
+  if (P.gray && P.detail > 0) {
+    const uni = new Uint8Array(N); for (const l of layers) for (let k = 0; k < N; k++) uni[k] |= l[k];
+    const inside = erode(uni, nx, nz, 1.2 / res), ero = {};
+    const ok = (i, k) => (ero[i] = ero[i] || erode(layers[i], nx, nz, 1.2 / res))[k] ? i : -1;
+    const sideA = k => { for (let i = 0; i < half; i++) if (layers[i][k]) return ok(i, k); return -1; };
+    const sideB = k => { for (let i = n - 1; i >= half; i--) if (layers[i][k]) return ok(i, k); return -1; };
+    for (const f of n > 1 ? [sideA, sideB] : [sideA])
+      for (const { key, pts } of edgeLines(P.gray, inside, nx, nz, res, P.detail, f)) (details[key] = details[key] || []).push(pts);
+  }
+  const parts = [], Lmm = nx * res;
+  for (let i = 0; i < n; i++) {
+    let has = false; for (let k = 0; k < N; k++) if (final[i][k]) { has = true; break; }
+    if (!has) continue;
+    const loops = contours(final[i], nx, nz, res, -kerf / 2).map(l => simplify(l, 0.08)).filter(l => l.length >= 3);
+    if (!loops.length) continue;
+    const holes = [], free = final[i].slice();
+    for (const d of dowels) { disc(free, d.x, d.z, rpx + 1 / res, 0); if (d.layers.has(i)) holes.push([(d.x + 0.5) * res, (d.z + 0.5) * res, dowel / 2 - kerf / 2]); }
+    let num = null;
+    if (numMax > 0 && (n < 3 || (i > 0 && i < n - 1))) {
+      if (n >= 3) for (let k = 0; k < N; k++) if (!layers[i - 1][k] || !layers[i + 1][k]) free[k] = 0;   // číslo jen tam, kde ho sousedi zakryjí
+      const dt = edt(free, nx, nz, 0); let bk = 0; for (let k = 1; k < N; k++) if (dt[k] > dt[bk]) bk = k;
+      const s = String(i + 1), kk = Math.hypot(0.8 * s.length - 0.3, 1) / 2, h = Math.min(numMax, (dt[bk] * res - 0.5) / kk);
+      if (h >= 1.5) num = { s, x: (bk % nx + 0.5) * res, y: (((bk / nx) | 0) + 0.5) * res, h };
+    }
+    let lines = details[i] || [], lp = loops, hp = holes;
+    if (lines.length && i >= half && n > 1) {   // strana B: zrcadlit, aby gravír byl na vnější straně
+      const M = l => l.map(([x, y]) => [Lmm - x, y]);
+      lp = loops.map(M); lines = lines.map(M); hp = holes.map(([x, y, r]) => [Lmm - x, y, r]);
+    }
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const l of lp) for (const [x, y] of l) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    parts.push({ i, loops: lp, holes: hp, num, lines, box: [x0, y0, x1, y1] });
+  }
+  return { parts, dowels, details };
+}
+
+function packSheets(parts, SW, SH) {
+  const gap = 3, sheets = []; let cur = [], x = gap, y = gap, row = 0;
+  for (const p of [...parts].sort((a, b) => (b.box[3] - b.box[1]) - (a.box[3] - a.box[1]))) {
+    const w = p.box[2] - p.box[0], h = p.box[3] - p.box[1];
+    if (w + 2 * gap > SW || h + 2 * gap > SH) throw new Error(`Vrstva ${p.i + 1} (${w.toFixed(0)} × ${h.toFixed(0)} mm) se nevejde na desku ${SW} × ${SH} mm. Zvětši desku nebo zmenši model.`);
+    if (x + w + gap > SW) { x = gap; y += row + gap; row = 0; }
+    if (y + h + gap > SH) { sheets.push(cur); cur = []; x = y = gap; row = 0; }
+    cur.push({ p, dx: x - p.box[0], dy: y - p.box[1] }); x += w + gap; row = Math.max(row, h);
+  }
+  if (cur.length) sheets.push(cur);
+  return sheets;
+}
+function sheetSVG(sheet, SW, SH, sw = "0.1", extra = "") {
+  const f = v => v.toFixed(2), cut = [], circ = [], eng = [], det = [];
+  for (const { p, dx, dy } of sheet) {
+    for (const l of p.loops) cut.push("M" + l.map(([x, y]) => `${f(x + dx)},${f(y + dy)}`).join(" L") + " Z");
+    for (const [cx, cy, r] of p.holes) circ.push(`<circle cx="${f(cx + dx)}" cy="${f(cy + dy)}" r="${f(r)}"/>`);
+    for (const l of p.lines || []) det.push("M" + l.map(([x, y]) => `${f(x + dx)},${f(y + dy)}`).join(" L"));
+    if (p.num) eng.push(numberPath(p.num.s, p.num.x + dx, p.num.y + dy, p.num.h));
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${SW}mm" height="${SH}mm" viewBox="0 0 ${SW} ${SH}">\n` +
+    `<g id="rez" fill="none" stroke="#ff0000" stroke-width="${sw}"${extra}><path d="${cut.join(" ")}"/>${circ.join("")}</g>\n` +
+    (det.length ? `<g id="detaily" fill="none" stroke="#00a000" stroke-width="${sw}"${extra}><path d="${det.join(" ")}"/></g>\n` : "") +
+    (eng.length ? `<g id="gravir" fill="none" stroke="#0000ff" stroke-width="${sw}"${extra}><path d="${eng.join(" ")}"/></g>\n` : "") + `</svg>\n`;
+}
+</script>
+
+<script>
+/* ===== UI ===== */
+const $ = s => document.querySelector(s);
+const state = { mode: "photo", side: null, front: null, top: null, scan: null, sample: true, result: null };
+const statusEl = $("#status");
+const setStatus = (msg, err) => { statusEl.textContent = msg; statusEl.classList.toggle("err", !!err); };
+const tick = () => new Promise(r => setTimeout(r, 16));
+
+function maskToCanvas(m, w, h, fg = [255, 255, 255, 255], bg = [0, 0, 0, 255]) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const ctx = c.getContext("2d"), id = ctx.createImageData(w, h);
+  for (let i = 0; i < w * h; i++) id.data.set(m[i] ? fg : bg, i * 4);
+  ctx.putImageData(id, 0, 0); return c;
+}
+function fitMask(s, W, H) {
+  const c = maskToCanvas(s.m, s.w, s.h, [0, 0, 0, 255], [0, 0, 0, 0]), o = document.createElement("canvas"); o.width = W; o.height = H;
+  const ctx = o.getContext("2d"); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high"; ctx.drawImage(c, 0, 0, W, H);
+  const d = ctx.getImageData(0, 0, W, H).data, m = new Uint8Array(W * H); for (let i = 0; i < W * H; i++) m[i] = d[i * 4 + 3] > 127 ? 1 : 0; return m;
+}
+function fitGray(s, W, H) {
+  const c = document.createElement("canvas"); c.width = s.w; c.height = s.h; const x = c.getContext("2d"), id = x.createImageData(s.w, s.h);
+  for (let i = 0; i < s.w * s.h; i++) { const g = s.gray[i]; id.data[i * 4] = id.data[i * 4 + 1] = id.data[i * 4 + 2] = g; id.data[i * 4 + 3] = 255; }
+  x.putImageData(id, 0, 0); const o = document.createElement("canvas"); o.width = W; o.height = H; const ox = o.getContext("2d");
+  ox.imageSmoothingEnabled = true; ox.imageSmoothingQuality = "high"; ox.drawImage(c, 0, 0, W, H);
+  const d = ox.getImageData(0, 0, W, H).data, g = new Uint8Array(W * H); for (let i = 0; i < W * H; i++) g[i] = d[i * 4]; return g;
+}
+function drawableToSil(src) {
+  const sw = src.naturalWidth || src.width, sh = src.naturalHeight || src.height, k = Math.min(1, 900 / Math.max(sw, sh));
+  const w = Math.max(1, Math.round(sw * k)), h = Math.max(1, Math.round(sh * k)), c = document.createElement("canvas"); c.width = w; c.height = h;
+  const ctx = c.getContext("2d"); ctx.drawImage(src, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h).data, s = silhouette(d, w, h);
+  if (!s) throw new Error("Na fotce jsem nenašel žádný objekt.");
+  s.gray = new Uint8Array(s.w * s.h);
+  for (let y = 0; y < s.h; y++) for (let x = 0; x < s.w; x++) { const i = ((y + s.y0) * w + x + s.x0) * 4; s.gray[y * s.w + x] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; }
+  return s;
+}
+function thumb(canvasEl, s) {
+  const ctx = canvasEl.getContext("2d"), W = canvasEl.width, H = canvasEl.height; ctx.clearRect(0, 0, W, H);
+  if (!s) return; const c = maskToCanvas(s.m, s.w, s.h, [120, 100, 70, 255], [0, 0, 0, 0]), k = Math.min(W / s.w, H / s.h) * 0.92;
+  ctx.drawImage(c, (W - s.w * k) / 2, (H - s.h * k) / 2, s.w * k, s.h * k);
+}
+
+/* ukázková auta - nakreslené siluety */
+function sampleImages() {
+  const mk = (w, h, draw) => { const c = document.createElement("canvas"); c.width = w; c.height = h; const x = c.getContext("2d"); x.fillStyle = "#ececec"; x.fillRect(0, 0, w, h); draw(x); return c; };
+  const poly = (x, pts, col) => { x.fillStyle = col; x.beginPath(); pts.forEach(([a, b], i) => i ? x.lineTo(a, b) : x.moveTo(a, b)); x.closePath(); x.fill(); };
+  const side = mk(1000, 400, x => { poly(x, [[100, 300], [110, 220], [250, 200], [380, 120], [650, 115], [780, 200], [900, 215], [910, 300]], "#3c3c8c");
+    poly(x, [[330, 195], [395, 135], [505, 131], [505, 195]], "#a8bccf"); poly(x, [[520, 131], [640, 128], [715, 195], [520, 195]], "#a8bccf");
+    x.strokeStyle = "#1c1c4a"; x.lineWidth = 4; x.beginPath(); x.moveTo(512, 135); x.lineTo(512, 285); x.moveTo(330, 205); x.lineTo(330, 280); x.moveTo(720, 205); x.lineTo(720, 280); x.stroke();
+    x.fillStyle = "#e8d98a"; x.fillRect(115, 228, 28, 14); x.fillStyle = "#c03030"; x.fillRect(872, 228, 24, 16);
+    for (const cx of [250, 760]) { x.fillStyle = "#1e1e1e"; x.beginPath(); x.arc(cx, 300, 70, 0, 7); x.fill();
+      x.fillStyle = "#9a9a9a"; x.beginPath(); x.arc(cx, 300, 40, 0, 7); x.fill(); x.fillStyle = "#2a2a2a"; x.beginPath(); x.arc(cx, 300, 11, 0, 7); x.fill(); } });
+  const front = mk(600, 400, x => { x.fillStyle = "#3c3c8c"; x.fillRect(110, 200, 380, 100); poly(x, [[160, 200], [190, 120], [410, 120], [440, 200]], "#3c3c8c");
+    x.fillStyle = "#1e1e1e"; for (const cx of [150, 450]) x.fillRect(cx - 40, 280, 80, 90); });
+  const top = mk(1000, 400, x => { x.fillStyle = "#3c3c8c"; x.beginPath(); x.roundRect(100, 100, 810, 200, 40); x.fill(); });
+  return { side, front, top };
+}
+
+async function loadImageFile(file) { const img = new Image(); img.src = URL.createObjectURL(file); await img.decode(); return img; }
+
+async function loadScan(file) {
+  const ext = file.name.split(".").pop().toLowerCase(), buf = await file.arrayBuffer(); let obj;
+  if (ext === "obj") obj = new THREE.OBJLoader().parse(new TextDecoder().decode(buf));
+  else if (ext === "stl") obj = new THREE.Mesh(new THREE.STLLoader().parse(buf));
+  else if (ext === "ply") obj = new THREE.Mesh(new THREE.PLYLoader().parse(buf));
+  else if (ext === "glb") obj = (await new Promise((res, rej) => new THREE.GLTFLoader().parse(buf, "", res, rej))).scene;
+  else throw new Error("Podporované formáty jsou OBJ, STL, GLB a PLY.");
+  obj.updateMatrixWorld(true);
+  const tris = [], v = new THREE.Vector3();
+  obj.traverse(o => {
+    if (!o.isMesh || !o.geometry) return;
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry, pos = g.attributes.position;
+    for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld); tris.push(v.x, v.y, v.z); }
+  });
+  if (!tris.length) throw new Error("V souboru nejsou žádné trojúhelníky.");
+  return new Float32Array(tris);
+}
+function orientMesh(raw, up, L) {
+  const ax = "xyz".indexOf(up.slice(-1)), sign = up[0] === "-" ? -1 : 1, mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < raw.length; i++) { const a = i % 3; if (raw[i] < mn[a]) mn[a] = raw[i]; if (raw[i] > mx[a]) mx[a] = raw[i]; }
+  const [lx, wy] = [0, 1, 2].filter(a => a !== ax).sort((a, b) => (mx[b] - mn[b]) - (mx[a] - mn[a]));
+  const out = new Float32Array(raw.length);
+  for (let i = 0; i < raw.length; i += 3) { out[i] = raw[i + lx]; out[i + 1] = raw[i + wy]; out[i + 2] = raw[i + ax] * sign; }
+  const m2 = [Infinity, Infinity, Infinity], M2 = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < out.length; i++) { const a = i % 3; if (out[i] < m2[a]) m2[a] = out[i]; if (out[i] > M2[a]) M2[a] = out[i]; }
+  const k = L / (M2[0] - m2[0]);
+  for (let i = 0; i < out.length; i++) out[i] = (out[i] - m2[i % 3]) * k;
+  return { tri: out, W: (M2[1] - m2[1]) * k, H: (M2[2] - m2[2]) * k };
+}
+
+function params() {
+  const num = (id, d) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : d; };
+  return { L: num("#pL", 200), t: Math.max(0.5, num("#pT", 3)), dowel: Math.max(0, num("#pD", 4)), wall: Math.max(0, num("#pH", 0)),
+    kerf: Math.max(0, num("#pK", 0.15)), numMax: Math.max(0, num("#pN", 5)), res: Math.max(0.1, num("#pR", 0.25)),
+    SW: num("#pSW", 400), SH: num("#pSH", 400), up: $("#up").value, detail: parseFloat($("#pDet").value) || 0 };
+}
+
+async function compute() {
+  const P = params(), btn = $("#run"); btn.disabled = true;
+  try {
+    setStatus("Počítám vrstvy…"); await tick();
+    let layers, nx, nz, W, H, silFigs = [];
+    if (state.mode === "photo") {
+      if (!state.side || !state.front) throw new Error("Nahraj aspoň fotku z boku a zepředu.");
+      const S0 = state.side, F0 = state.front, T0 = state.top;
+      H = P.L * S0.h / S0.w; W = H * F0.w / F0.h;
+      nx = Math.round(P.L / P.res); nz = Math.round(H / P.res); const ny = Math.max(1, Math.round(W / P.res));
+      const S = fitMask(S0, nx, nz), F = fitMask(F0, ny, nz), T = T0 ? fitMask(T0, nx, ny) : new Uint8Array(nx * ny).fill(1);
+      if (P.detail > 0) P.gray = fitGray(S0, nx, nz);
+      silFigs = [["Bok", S, nx, nz], ["Předek", F, ny, nz], ...(T0 ? [["Shora", T, nx, ny]] : [])];
+      const n = Math.max(1, Math.round(W / P.t)); layers = [];
+      for (let i = 0; i < n; i++) {
+        const yi = Math.min(ny - 1, Math.floor((i + 0.5) * ny / n)), m = new Uint8Array(nx * nz);
+        for (let r = 0; r < nz; r++) { if (!F[r * ny + yi]) continue; for (let c = 0; c < nx; c++) m[r * nx + c] = S[r * nx + c] & T[yi * nx + c]; }
+        layers.push(m);
+      }
+    } else {
+      if (!state.scan) throw new Error("Nahraj 3D sken.");
+      const o = orientMesh(state.scan, P.up, P.L); W = o.W; H = o.H;
+      ({ layers, nx, nz } = meshLayers(o.tri, P.L, W, H, P.t, P.res));
+      const u = new Uint8Array(nx * nz); for (const l of layers) for (let k = 0; k < u.length; k++) u[k] |= l[k];
+      silFigs = [["Boční pohled na vrstvy", u, nx, nz]];
+    }
+    setStatus(`Vrstev: ${layers.length}. Hledám kolíky, dutiny a obrysy…`); await tick();
+    const { parts, dowels, details } = buildParts(layers, nx, nz, P); delete P.gray;
+    if (!parts.length) throw new Error("Nevznikla žádná vrstva. Zkontroluj siluety.");
+    const sheets = packSheets(parts, P.SW, P.SH);
+    state.result = { P, W, H, n: layers.length, parts, dowels, sheets };
+    renderStats(); renderSheets(); renderSil(silFigs);
+    setStatus("Hotovo."); await tick();
+    show3D(layers, nx, nz, P, H, details);
+  } catch (e) { console.error(e); setStatus(e.message || String(e), true); }
+  finally { btn.disabled = false; }
+}
+
+function renderStats() {
+  const r = state.result, P = r.P;
+  $("#stats").innerHTML =
+    (state.sample && state.mode === "photo" ? `<span class="chip sample">Ukázka – nahraj vlastní fotky</span>` : "") +
+    `<span class="chip"><b>Rozměr</b>${P.L.toFixed(0)} × ${(r.n * P.t).toFixed(0)} × ${r.H.toFixed(0)} mm</span>` +
+    `<span class="chip"><b>Vrstvy</b>${r.parts.length} × ${P.t} mm</span>` +
+    `<span class="chip"><b>Desky</b>${r.sheets.length} × ${P.SW}×${P.SH}</span>`;
+  $("#dowelInfo").textContent = r.dowels.filter(d => d.layers.size).map((d, j) => {
+    const ls = [...d.layers]; return `Kolík ${j + 1}: Ø${P.dowel} mm, délka ~${(ls.length * P.t - 1).toFixed(0)} mm (vrstvy ${Math.min(...ls) + 1}–${Math.max(...ls) + 1})`;
+  }).join("   ·   ") || (P.dowel > 0 ? "Kolíky se do modelu nevešly." : "");
+}
+
+const downloads = true;
+async function saveFile(filename, data) {
+  const api = window.pywebview && window.pywebview.api;
+  try {
+    if (api && api.save_file && typeof data === "string") { const p = await api.save_file(filename, data); setStatus(p ? "Uloženo: " + p : "Ukládání zrušeno."); return; }
+    if (api && api.save_binary) {
+      const b = new Uint8Array(await data.arrayBuffer()); let bin = ""; for (let i = 0; i < b.length; i += 0x8000) bin += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+      const p = await api.save_binary(filename, btoa(bin)); setStatus(p ? "Uloženo: " + p : "Ukládání zrušeno."); return;
+    }
+  } catch (e) { setStatus("Uložení selhalo: " + e, true); return; }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(typeof data === "string" ? new Blob([data], { type: "image/svg+xml" }) : data);
+  a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setStatus("Uloženo: " + filename);
+}
+
+function renderSheets() {
+  const r = state.result; if (!r) return; const P = r.P, box = $("#sheets"); box.innerHTML = "";
+  r.sheets.forEach((sh, k) => {
+    const name = `deska_${String(k + 1).padStart(2, "0")}.svg`, svg = sheetSVG(sh, P.SW, P.SH);
+    const prev = sheetSVG(sh, P.SW, P.SH, "1.4", ` vector-effect="non-scaling-stroke"`)
+      .replace('stroke="#ff0000"', 'stroke="var(--cut)"').replace('stroke="#0000ff"', 'stroke="var(--engrave)"').replace('stroke="#00a000"', 'stroke="var(--detail)"')
+      .replace(/width="[\d.]+mm" height="[\d.]+mm"/, `role="img" aria-label="Deska ${k + 1}"`);
+    const el = document.createElement("div"); el.className = "sheet";
+    el.innerHTML = `<div class="svgbox">${prev}</div><div class="row"><span>Deska ${k + 1} · ${sh.length} dílů</span><button class="btn ghost" type="button">Uložit SVG</button></div>`;
+    el.querySelector("button").onclick = () => saveFile(name, svg);
+    box.appendChild(el);
+  });
+}
+$("#zipBtn").onclick = async () => {
+  const r = state.result; if (!r || !window.JSZip) return; const z = new JSZip();
+  r.sheets.forEach((sh, k) => z.file(`deska_${String(k + 1).padStart(2, "0")}.svg`, sheetSVG(sh, r.P.SW, r.P.SH)));
+  await saveFile("vrstvy.zip", await z.generateAsync({ type: "blob" }));
+};
+
+function renderSil(figs) {
+  const box = $("#sil"); box.innerHTML = "";
+  for (const [name, m, w, h] of figs) {
+    const f = document.createElement("figure"), c = maskToCanvas(m, w, h, [245, 245, 240, 255], [20, 22, 21, 255]);
+    f.appendChild(c); const cap = document.createElement("figcaption"); cap.textContent = name; f.appendChild(cap); box.appendChild(f);
+  }
+}
+
+/* ===== 3D náhled ===== */
+let R = null;
+function init3D() {
+  if (R || !window.THREE) return R;
+  const el = $("#view3d"), renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(2, devicePixelRatio)); el.appendChild(renderer.domElement);
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(35, 1, 1, 10000);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x6b5a45, 0.75));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.85); sun.position.set(0.6, 1, 0.8); scene.add(sun);
+  const back = new THREE.DirectionalLight(0xffffff, 0.3); back.position.set(-1, 0.4, -0.6); scene.add(back);
+  const controls = new THREE.OrbitControls(camera, renderer.domElement); controls.enableDamping = false;
+  const group = new THREE.Group(); scene.add(group);
+  const draw = () => renderer.render(scene, camera);
+  controls.addEventListener("change", draw);
+  const size = () => { const w = el.clientWidth, h = el.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); draw(); };
+  new ResizeObserver(size).observe(el);
+  R = { renderer, scene, camera, controls, group, draw, size }; size(); return R;
+}
+function show3D(layers, nx, nz, P, H, details = {}) {
+  const r = init3D(); if (!r) return;
+  r.group.children.forEach(m => m.geometry.dispose()); r.group.clear();
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x4a2f16 });
+  const n = layers.length, matA = new THREE.MeshStandardMaterial({ color: 0xdcbb87, roughness: 0.85 }), matB = new THREE.MeshStandardMaterial({ color: 0xcfa96f, roughness: 0.85 });
+  layers.forEach((m, i) => {
+    const loops = contours(m, nx, nz, P.res, 0).map(l => simplify(l, 0.3)).filter(l => l.length >= 3);
+    if (!loops.length) return;
+    const depth = loops.map((l, j) => loops.reduce((a, o, k) => a + (k !== j && pip(l[0], o) ? 1 : 0), 0));
+    const V = l => l.map(([x, y]) => new THREE.Vector2(x, H - y)), shapes = [];
+    loops.forEach((l, j) => {
+      if (depth[j] % 2) return;
+      const s = new THREE.Shape(V(l));
+      loops.forEach((h, k) => { if (depth[k] === depth[j] + 1 && pip(h[0], l)) s.holes.push(new THREE.Path(V(h))); });
+      shapes.push(s);
+    });
+    const g = new THREE.ExtrudeGeometry(shapes, { depth: P.t * 0.97, bevelEnabled: false, curveSegments: 1 });
+    const mesh = new THREE.Mesh(g, i % 2 ? matB : matA); mesh.position.set(-P.L / 2, -H / 2, i * P.t - n * P.t / 2); r.group.add(mesh);
+  });
+  for (const [k, lines] of Object.entries(details)) {
+    const i = +k, z = i < Math.ceil(n / 2) ? (i - n / 2) * P.t - 0.05 : (i - n / 2) * P.t + P.t * 0.97 + 0.05, pos = [];
+    for (const l of lines) for (let j = 0; j < l.length - 1; j++) pos.push(l[j][0] - P.L / 2, H / 2 - l[j][1], z, l[j + 1][0] - P.L / 2, H / 2 - l[j + 1][1], z);
+    if (!pos.length) continue;
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); r.group.add(new THREE.LineSegments(g, lineMat));
+  }
+  const span = Math.max(P.L, H, n * P.t);
+  r.camera.position.set(span * 1.1, span * 0.7, span * 1.5); r.camera.near = span / 100; r.camera.far = span * 20; r.camera.updateProjectionMatrix();
+  r.controls.target.set(0, 0, 0); r.controls.update(); r.size(); r.draw();
+}
+
+/* ===== ovládání ===== */
+function setMode(m) {
+  state.mode = m; $("#modePhoto").setAttribute("aria-pressed", m === "photo"); $("#modeScan").setAttribute("aria-pressed", m === "scan");
+  $("#photoIn").hidden = m !== "photo"; $("#detBox").hidden = m !== "photo"; $("#scanIn").hidden = m !== "scan";
+}
+$("#modePhoto").onclick = () => { setMode("photo"); compute(); };
+$("#modeScan").onclick = () => { setMode("scan"); if (state.scan) compute(); else setStatus("Nahraj 3D sken (OBJ, STL, GLB nebo PLY)."); };
+
+for (const [id, key, cv] of [["#fSide", "side", "#cSide"], ["#fFront", "front", "#cFront"], ["#fTop", "top", "#cTop"]]) {
+  $(id).onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try {
+      setStatus("Odstraňuji pozadí…"); await tick();
+      if (state.sample) { state.sample = false; state.side = state.front = state.top = null; [ "#cSide", "#cFront", "#cTop"].forEach(c => thumb($(c), null)); }
+      const s = drawableToSil(await loadImageFile(f)); state[key] = s; thumb($(cv), s);
+      if (state.side && state.front) compute(); else setStatus("Nahraj ještě " + (!state.side ? "fotku z boku." : "fotku zepředu."));
+    } catch (err) { setStatus(err.message || "Fotku se nepodařilo načíst.", true); }
+  };
+}
+$("#fScan").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { setStatus("Načítám sken…"); await tick(); state.scan = await loadScan(f);
+    $("#scanName").innerHTML = `${f.name} <small>${(state.scan.length / 9).toLocaleString("cs-CZ")} trojúhelníků</small>`; compute(); }
+  catch (err) { setStatus(err.message || "Sken se nepodařilo načíst.", true); }
+};
+$("#up").onchange = () => state.scan && compute();
+$("#pDet").onchange = () => state.mode === "photo" && compute();
+$("#run").onclick = compute;
+
+const tabs = [["#t3d", "#p3d"], ["#tSheets", "#pSheets"], ["#tSil", "#pSil"]];
+tabs.forEach(([t, p]) => $(t).onclick = () => { tabs.forEach(([t2, p2]) => { $(t2).setAttribute("aria-selected", t2 === t); $(p2).hidden = p2 !== p; }); if (p === "#p3d" && R) R.size(); });
+
+(async () => {
+  const s = sampleImages();
+  state.side = drawableToSil(s.side); state.front = drawableToSil(s.front); state.top = drawableToSil(s.top);
+  thumb($("#cSide"), state.side); thumb($("#cFront"), state.front); thumb($("#cTop"), state.top);
+  await compute();
+})();
+</script>

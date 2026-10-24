@@ -13,6 +13,13 @@ server ve vyšším rozlišení (hladké řezy). Bez serveru se počítá přím
 3. Aktualizace: v appce tlačítko **Aktualizovat**. Exe stáhne novou verzi, vymění se a restartuje.
 4. Ukončení: zavři okno.
 
+## 3D model (jen Preklizka.exe)
+
+Přepínač **Obrázek / 3D model** v hlavičce. 3D režim nařeže autíčko apod. na vrstvy, které se lepí vedle sebe
+(kolíky, vydlabání, čísla vrstev, gravír detailů z boční fotky na viditelné boky), a uloží SVG desky pro laser.
+Vstup: fotky bok + předek (+ shora) na jednobarevném pozadí, nebo 3D sken OBJ/STL/GLB/PLY
+(např. z RealityScan: 50–100 fotek dokola, výpočet na grafice). Na serveru v Dockeru se režim nezobrazuje.
+
 ## AI pomocník
 
 - **Pozadí pryč** (kreslený obrázek / fotka), **Vybrat kliknutím** (ohraničit postavu tažením, klik přidá, Shift+klik ubere),

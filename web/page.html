@@ -87,6 +87,10 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
 .hint { font-size: .8rem; color: var(--muted); margin: 0; }
 .ver { font: 500 .9rem var(--mono); color: var(--muted); vertical-align: middle; letter-spacing: 0; }
 .srv .new { color: var(--accent); font-weight: 600; }
+.appsw { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.appsw a, .appsw span { font: 600 .95rem var(--display); letter-spacing: .03em; text-transform: uppercase; padding: 6px 12px; color: var(--muted); text-decoration: none; }
+.appsw span { background: var(--fg); color: var(--bg); }
+.appsw a:hover { color: var(--fg); }
 .srv { display: flex; gap: 8px; align-items: center; font: 500 .8rem var(--mono); color: var(--muted); margin-left: auto; }
 
 .main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -142,6 +146,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
 <div class="wrap">
   <header>
     <h1>Překližkové vrstvy <span class="ver" id="ver">v__VERSION__</span></h1>
+    <nav class="appsw" id="appsw" aria-label="Režim" hidden><span aria-current="page">Obrázek</span><a href="3d">3D model</a></nav>
     <div class="srv" id="srv" hidden>
       <span id="srvInfo"></span>
       <button class="btn" id="updBtn" type="button">Aktualizovat</button>
@@ -372,6 +377,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       if (!r.ok) return;
       server = await r.json();
       $("srv").hidden = false;
+      $("appsw").hidden = server.mode !== "exe";
       $("updBtn").hidden = !server.update;
       if (server.ai && server.ai.available) { $("aiSec").hidden = false; $("aiDev").textContent = "počítá " + server.ai.device; }
       showServer(await latestVersion());

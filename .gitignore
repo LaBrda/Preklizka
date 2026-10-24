@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 .env
 web/index.html
+web/3d.html
 Preklizka_modely/
 selftest.log
 Preklizka.log

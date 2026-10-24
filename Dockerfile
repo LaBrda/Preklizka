@@ -9,7 +9,7 @@ COPY app ./app
 COPY web ./web
 COPY tools ./tools
 COPY VERSION ./VERSION
-RUN python tools/build_web.py
+RUN python tools/build_web.py --bez-3d
 
 ARG APP_VERSION=dev
 ENV APP_VERSION=${APP_VERSION}

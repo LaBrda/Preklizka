@@ -154,6 +154,13 @@ def index():
     return FileResponse(WEB / "index.html", headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/3d")
+def model3d():
+    if not DESKTOP:                                          # 3D režim jen v Preklizka.exe
+        raise HTTPException(404, "3D režim je jen ve Windows verzi (Preklizka.exe).")
+    return FileResponse(WEB / "3d.html", headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "version": VERSION, "update": DESKTOP or bool(WATCHTOWER_URL and WATCHTOWER_TOKEN),
