@@ -13,7 +13,7 @@ import multiprocessing as mp
 import httpx
 import numpy as np
 from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 import vrstvy
@@ -184,6 +184,32 @@ def addon3d_run(inp: Addon3dIn):
             return {"glb": base64.b64encode(addon3d.run(png, max(96, min(384, inp.resolution)))).decode()}
         except Exception as e:
             raise HTTPException(500, str(e))
+
+
+@app.get("/api/commons")
+def commons_search(q: str):
+    """Fotky z Wikimedia Commons pro 3D režim (pohledy auta); jen Preklizka.exe."""
+    import commons
+    if not DESKTOP:
+        raise HTTPException(404, "Jen v Preklizka.exe.")
+    try:
+        return {"items": commons.search(q.strip()[:200])}
+    except Exception as e:                                    # noqa: BLE001
+        raise HTTPException(502, f"Wikimedia Commons neodpovídá ({e}).")
+
+
+@app.get("/api/commons/img")
+def commons_img(url: str):
+    import commons
+    if not DESKTOP:
+        raise HTTPException(404, "Jen v Preklizka.exe.")
+    try:
+        data, ct = commons.fetch(url)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:                                    # noqa: BLE001
+        raise HTTPException(502, f"Obrázek se nepodařilo stáhnout ({e}).")
+    return Response(data, media_type=ct)
 
 
 class WheelsIn(BaseModel):

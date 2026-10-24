@@ -83,6 +83,16 @@ h2{font-family:var(--display);font-size:13px;font-weight:700;text-transform:uppe
 .sil figcaption{font-size:12px;color:var(--muted)}
 .dowels{font-size:13px;color:var(--muted);font-family:var(--mono)}
 details summary{cursor:pointer;font-size:13px;font-weight:600}
+.web{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.web form{display:flex;gap:6px}
+.web form input{flex:1}
+.webgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;max-height:340px;overflow:auto}
+.webgrid button{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:2px;min-width:0;border:1px solid var(--line);border-radius:6px;padding:3px;background:var(--bg)}
+.webgrid button:hover,.webgrid button:focus-visible{border-color:var(--accent)}
+.webgrid img{width:100%;height:64px;object-fit:contain;border-radius:4px}
+.webgrid small,.credits{font-size:11px;line-height:1.3;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.credits{white-space:normal;margin:0}
+.credits a{color:inherit}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 
@@ -108,6 +118,16 @@ details summary{cursor:pointer;font-size:13px;font-weight:600}
         <label class="drop"><span class="lbl">Zadek <small>volitelné</small></span><canvas id="cRear" width="160" height="56"></canvas><input id="fRear" type="file" accept="image/*"><button class="flip" type="button" data-k="rear" title="Zrcadlit">⇆</button></label>
         <label class="drop"><span class="lbl">Shora <small>volitelné</small></span><canvas id="cTop" width="160" height="56"></canvas><input id="fTop" type="file" accept="image/*"><button class="flip" type="button" data-k="top" title="Zrcadlit">⇆</button></label>
       </div>
+      <details id="webBox" hidden>
+        <summary>Dohledat pohledy na Wikimedia Commons</summary>
+        <div class="web">
+          <form id="webForm"><div class="f" style="flex:1"><input id="webQ" placeholder="Co je to za auto, např. Tatra 815 CAS 30" aria-label="Co je to za auto"></div><button class="btn ghost" type="submit">Hledat</button></form>
+          <div class="f"><label for="webSlot">Kliknutý obrázek dát do</label>
+            <select id="webSlot"><option value="side">Bok čelem doleva</option><option value="sideR">Bok čelem doprava</option><option value="front">Předek</option><option value="rear">Zadek</option><option value="top">Shora</option></select></div>
+          <div class="webgrid" id="webGrid"></div>
+        </div>
+      </details>
+      <p class="credits" id="credits"></p>
       <p class="hint" id="viewHint" style="margin:0">Stačí jeden bok a předek nebo zadek. Každý další pohled tvar zpřesní, bok zprava dá gravír i na pravou stranu. Fotky musí být přesně z boku, zepředu a zezadu, ne šikmo.</p>
 
       <div id="aiIn" class="scan" hidden>
@@ -650,7 +670,7 @@ function sheetSVG(sheet, SW, SH, sw = "0.1", extra = "") {
 <script>
 /* ===== UI ===== */
 const $ = s => document.querySelector(s);
-const state = { mode: "photo", side: null, front: null, top: null, scan: null, sample: true, result: null, wheels: [] };
+const state = { mode: "photo", side: null, front: null, top: null, scan: null, sample: true, result: null, wheels: [], credits: {} };
 const statusEl = $("#status");
 const setStatus = (msg, err) => { statusEl.textContent = msg; statusEl.classList.toggle("err", !!err); };
 const tick = () => new Promise(r => setTimeout(r, 16));
@@ -993,7 +1013,7 @@ function show3D(layers, nx, nz, P, H, details = {}, wheels = [], wk = 0) {
 /* ===== ovládání ===== */
 function setMode(m) {
   state.mode = m; $("#modePhoto").setAttribute("aria-pressed", m === "photo"); $("#modeScan").setAttribute("aria-pressed", m === "scan"); $("#modeAi").setAttribute("aria-pressed", m === "ai");
-  $("#aiIn").hidden = m !== "ai"; $("#viewHint").hidden = m !== "photo";
+  $("#aiIn").hidden = m !== "ai"; $("#viewHint").hidden = $("#credits").hidden = m !== "photo"; $("#webBox").hidden = m !== "photo" || !state.exe;
   $("#photoIn").hidden = m !== "photo"; $("#detBox").hidden = m !== "photo"; $("#scanIn").hidden = m !== "scan"; $("#realBox").hidden = m === "photo";
   $("#wheelHint").textContent = m !== "photo" ? "Kola se hledají na boku modelu. V záložce Kontrola siluet klikni do boku: na kolo = smazat, jinam = přidat kolo."
     : AI ? "Kola se hledají na fotce z boku. V záložce Kontrola siluet klikni do boku: na kolo = smazat, jinam = přidat kolo." : "Bez AI: kola přidáš ručně kliknutím do boku v záložce Kontrola siluet.";
@@ -1007,23 +1027,56 @@ $("#modeScan").onclick = () => { setMode("scan"); if (state.scan) compute(); els
 const SLOTS = [["#fSide", "side", "#cSide"], ["#fSideR", "sideR", "#cSideR"], ["#fFront", "front", "#cFront"], ["#fRear", "rear", "#cRear"], ["#fTop", "top", "#cTop"]];
 const primaryKey = () => state.side ? "side" : state.sideR ? "sideR" : null;
 async function redetectWheels() { const k = primaryKey(); state.wheels = k ? await aiWheels(state[k]) : []; }
-for (const [id, key, cv] of SLOTS) {
-  $(id).onchange = async e => {
-    const f = e.target.files[0]; if (!f) return;
-    try {
-      setStatus("Odstraňuji pozadí…"); await tick();
-      if (state.sample) { state.sample = false; for (const [, k, c] of SLOTS) { state[k] = null; thumb($(c), null); } state.wheels = []; }
-      let img = await loadImageFile(f);
-      if (AI) img = await aiCutout(img);
-      let s = drawableToSil(img);
-      if (key === "sideR" || key === "rear") s = flipSil(s);   // do stejného pohledu jako bok zleva / předek
-      state[key] = s; thumb($(cv), s);
-      if (key === primaryKey()) { setStatus("Hledám kola…"); await redetectWheels(); }
-      if ((state.side || state.sideR) && (state.front || state.rear)) compute();
-      else setStatus("Nahraj ještě " + (!(state.side || state.sideR) ? "fotku z boku." : "fotku zepředu nebo zezadu."));
-    } catch (err) { setStatus(err.message || "Fotku se nepodařilo načíst.", true); }
-  };
+async function setSlot(key, img, credit) {
+  const cv = SLOTS.find(x => x[1] === key)[2];
+  try {
+    setStatus("Odstraňuji pozadí…"); await tick();
+    if (state.sample) { state.sample = false; for (const [, k, c] of SLOTS) { state[k] = null; thumb($(c), null); } state.wheels = []; }
+    if (AI) img = await aiCutout(img);
+    let s = drawableToSil(img);
+    if (key === "sideR" || key === "rear") s = flipSil(s);   // do stejného pohledu jako bok zleva / předek
+    state[key] = s; thumb($(cv), s); state.credits[key] = credit || null; renderCredits();
+    if (key === primaryKey()) { setStatus("Hledám kola…"); await redetectWheels(); }
+    if ((state.side || state.sideR) && (state.front || state.rear)) compute();
+    else setStatus("Nahraj ještě " + (!(state.side || state.sideR) ? "fotku z boku." : "fotku zepředu nebo zezadu."));
+  } catch (err) { setStatus(err.message || "Fotku se nepodařilo načíst.", true); }
 }
+for (const [id, key] of SLOTS) $(id).onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  let img; try { img = await loadImageFile(f); } catch (err) { setStatus("Fotku se nepodařilo načíst.", true); return; }
+  setSlot(key, img);
+};
+
+/* Wikimedia Commons: hledání pohledů podle názvu auta (stahuje server exe, kvůli CORS); autor a licence se musí uvést */
+const SLOT_NAMES = { side: "Bok zleva", sideR: "Bok zprava", front: "Předek", rear: "Zadek", top: "Shora" };
+const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+function renderCredits() {
+  $("#credits").innerHTML = Object.entries(state.credits).filter(([k, c]) => c && state[k]).map(([k, c]) =>
+    `${SLOT_NAMES[k]}: <a href="${esc(c.page)}" target="_blank" rel="noopener">${esc(c.title)}</a>, ${esc(c.author)}, ${c.licenseUrl ? `<a href="${esc(c.licenseUrl)}" target="_blank" rel="noopener">${esc(c.license)}</a>` : esc(c.license)}, Wikimedia Commons`).join("<br>");
+}
+$("#webForm").onsubmit = async e => {
+  e.preventDefault(); const q = $("#webQ").value.trim(), grid = $("#webGrid"); if (!q) return;
+  grid.innerHTML = ""; setStatus("Hledám na Wikimedia Commons…");
+  try {
+    const r = await fetch("api/commons?q=" + encodeURIComponent(q)), j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.detail || "server " + r.status);
+    if (!j.items.length) { setStatus("Nic jsem nenašel. Zkus jiný název (např. bez typu nástavby)."); return; }
+    for (const it of j.items) {
+      const b = document.createElement("button"); b.type = "button"; b.title = `${it.title}\n${it.author}, ${it.license}`;
+      b.innerHTML = `<img loading="lazy" alt="${esc(it.title)}" src="${esc(it.thumb)}"><small>${esc(it.author)}</small><small>${esc(it.license)}</small>`;
+      b.onclick = async () => {
+        const key = $("#webSlot").value; setStatus("Stahuji obrázek…");
+        try {
+          const ir = await fetch("api/commons/img?url=" + encodeURIComponent(it.img));
+          if (!ir.ok) throw new Error((await ir.json().catch(() => ({}))).detail || "server " + ir.status);
+          await setSlot(key, await loadImageFile(await ir.blob()), it);
+        } catch (err) { setStatus(err.message || String(err), true); }
+      };
+      grid.appendChild(b);
+    }
+    setStatus(`Nalezeno ${j.items.length}. Vyber, kam obrázek patří, a klikni na něj. Hodí se fotky přesně z boku a zepředu.`);
+  } catch (err) { setStatus("Hledání se nepovedlo: " + (err.message || err), true); }
+};
 document.querySelectorAll(".drop .flip").forEach(b => b.onclick = async e => {
   e.preventDefault(); e.stopPropagation();
   const k = b.dataset.k; if (!state[k]) return;
@@ -1085,7 +1138,7 @@ const tabs = [["#t3d", "#p3d"], ["#tSheets", "#pSheets"], ["#tSil", "#pSil"]];
 tabs.forEach(([t, p]) => $(t).onclick = () => { tabs.forEach(([t2, p2]) => { $(t2).setAttribute("aria-selected", t2 === t); $(p2).hidden = p2 !== p; }); if (p === "#p3d" && R) R.size(); });
 
 (async () => {
-  try { const h = await (await fetch("api/health", { cache: "no-store" })).json(); AI = h.ai && h.ai.available ? h.ai : null; } catch (e) { AI = null; }
+  try { const h = await (await fetch("api/health", { cache: "no-store" })).json(); AI = h.ai && h.ai.available ? h.ai : null; state.exe = h.mode === "exe"; $("#webBox").hidden = !state.exe; } catch (e) { AI = null; }
   if (!AI) $("#wheelHint").textContent = "Bez AI: kola přidáš ručně kliknutím do boku v záložce Kontrola siluet.";
   const s = sampleImages();
   state.side = drawableToSil(s.side); state.front = drawableToSil(s.front); state.top = drawableToSil(s.top);
