@@ -28,14 +28,19 @@ jobs:
           import addon3d
           addon3d._install()
           print(json.dumps(addon3d.status(), ensure_ascii=False))
-          assert addon3d.installed(), addon3d._st
+          if not addon3d.installed():
+              print("::error title=Instalace::" + str(addon3d._st).replace("\n", " ")); sys.exit(1)
           from PIL import Image, ImageDraw
           im = Image.new("RGBA", (800, 400), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
           d.rectangle((80, 140, 720, 300), fill=(200, 30, 30, 255)); d.rectangle((420, 70, 700, 160), fill=(200, 30, 30, 255))
           d.rectangle((450, 90, 560, 150), fill=(150, 190, 220, 255))
           for cx in (220, 600): d.ellipse((cx - 60, 250, cx + 60, 370), fill=(25, 25, 25, 255))
           im.save("car.png")
-          t = time.time(); glb = addon3d.run(open("car.png", "rb").read(), 160)
+          t = time.time()
+          try:
+              glb = addon3d.run(open("car.png", "rb").read(), 160)
+          except Exception as e:
+              print("::error title=Model::" + str(e).replace("\n", " ")[:3000]); sys.exit(1)
           open("car.glb", "wb").write(glb); print("GLB", len(glb), "bajtů za", round(time.time() - t), "s")
           assert len(glb) > 10000
           EOF
