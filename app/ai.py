@@ -18,7 +18,7 @@ import numpy as np
 
 BASE_URL = "https://github.com/LaBrda/Preklizka/releases/download/modely/"
 MODELS = {   # jméno -> přibližná velikost v MB
-    "isnet-anime.onnx": 168, "isnet-general-use.onnx": 170,
+    "isnet-anime.onnx": 168, "isnet-general-use.onnx": 170, "birefnet.onnx": 973,
     "sam-encoder.onnx": 95, "sam-decoder.onnx": 9,
     "esrgan-anime.onnx": 17, "esrgan-fast.onnx": 3,
     "cartoon-portret.onnx": 9, "cartoon-krajina.onnx": 9,
@@ -86,7 +86,9 @@ def needed(op: str, p: dict, gpu: bool) -> list[str]:
     if op == "bg":
         if p.get("kind") == "white":
             return []
-        return ["isnet-general-use.onnx" if p.get("kind") == "photo" else "isnet-anime.onnx"]
+        if p.get("kind") == "photo":
+            return ["birefnet.onnx"] if gpu else ["isnet-general-use.onnx"]   # na grafice nejlepší model BiRefNet
+        return ["isnet-anime.onnx"]
     if op == "select":
         return ["sam-encoder.onnx", "sam-decoder.onnx"]
     if op == "upscale":
@@ -129,6 +131,8 @@ def _session(name: str, cpu: bool = False):
         so.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
     if not use:
         so.enable_cpu_mem_arena = False          # menší špička paměti na serveru
+        if name == "birefnet.onnx":
+            so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
     path = str(models_dir() / name)
     try:
         s = ort.InferenceSession(path, so, providers=use + ["CPUExecutionProvider"])
@@ -189,6 +193,16 @@ def bg_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
     """Měkká maska popředí 0..1 v plném rozlišení."""
     import cv2
     h, w = rgb.shape[:2]
+    o = None
+    if kind == "photo" and _gpu() and (models_dir() / "birefnet.onnx").exists():
+        try:
+            o = _birefnet(rgb)
+        except Exception:                                # noqa: BLE001  grafika to nezvládla -> IS-Net
+            o = None
+    if o is not None:
+        return _refine(rgb, cv2.resize(o, (w, h), interpolation=cv2.INTER_LINEAR).astype(np.float32), kind)
+    if kind == "photo" and not (models_dir() / "isnet-general-use.onnx").exists():
+        raise RuntimeError("Model pro fotky chybí, zkus to znovu (stáhne se).")
     name = "isnet-general-use.onnx" if kind == "photo" else "isnet-anime.onnx"
     inp = _session(name).get_inputs()[0].name
     x = cv2.resize(rgb, (1024, 1024), interpolation=cv2.INTER_AREA if max(h, w) > 1024 else cv2.INTER_CUBIC).astype(np.float32)
@@ -196,6 +210,21 @@ def bg_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
     o = _run(name, {inp: x.transpose(2, 0, 1)[None].astype(np.float32)})[0][0, 0]
     o = (o - o.min()) / max(float(o.max() - o.min()), 1e-6)
     m = cv2.resize(o, (w, h), interpolation=cv2.INTER_LINEAR).astype(np.float32)
+    return _refine(rgb, m, kind)
+
+
+def _birefnet(rgb: np.ndarray) -> np.ndarray:
+    import cv2
+    x = cv2.resize(rgb, (1024, 1024), interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
+    x = (x - np.array([0.485, 0.456, 0.406], np.float32)) / np.array([0.229, 0.224, 0.225], np.float32)
+    s = _session("birefnet.onnx")
+    o = _run("birefnet.onnx", {s.get_inputs()[0].name: np.ascontiguousarray(x.transpose(2, 0, 1)[None], np.float32)})[0][0, 0]
+    return (1.0 / (1.0 + np.exp(-o))).astype(np.float32)
+
+
+def _refine(rgb: np.ndarray, m: np.ndarray, kind: str) -> np.ndarray:
+    import cv2
+    h, w = rgb.shape[:2]
     # hrany dopočítat podle skutečného obrázku v plném rozlišení
     g = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255.0
     r = max(2, round(max(h, w) / 350))
