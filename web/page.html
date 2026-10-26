@@ -178,17 +178,21 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
         <div class="f"><label for="aiCutKind">Obrázek je</label><div class="in"><select id="aiCutKind"><option value="photo" selected>fotka</option><option value="anime">kreslený</option><option value="white">odstranit všechnu bílou</option></select></div></div>
         <button class="btn aib" id="aiCut" type="button" style="align-self:end">Stáhnout PNG bez pozadí</button>
       </div>
-      <h3>Fotka → kreslený obrázek</h3>
+      <h3>Úpravy obrázku (kreslený vzhled)</h3>
       <div class="fields">
-        <div class="f"><label for="aiStyle">Styl</label><div class="in"><select id="aiStyle"><option value="portret" selected>portrét</option><option value="krajina">scéna, celá postava</option><option value="flatai">vyhladit + AI obrysy (detaily jako čáry)</option><option value="flat">vyhladit lesky a šum (bez AI)</option><option value="none">jen zjednodušit</option><option value="poly">polygony (pokus)</option></select></div></div>
-        <div class="f"><label for="aiColors">Barvy</label><div class="in"><input id="aiColors" type="number" min="2" max="24" step="1" value="8"></div></div>
-        <div class="f"><label for="aiDetail" title="Vlevo méně dílků, vpravo víc detailů">Detail (dílky)</label><div class="in"><input id="aiDetail" type="range" min="1" max="10" value="4" style="accent-color:var(--accent)"></div></div>
-        <label class="check" style="align-self:end"><input type="checkbox" id="aiLines" checked> Obrysy</label>
+        <div class="f"><label for="aiStyle">Kreslený styl AI</label><div class="in"><select id="aiStyle" class="cartp"><option value="none" selected>vypnuto</option><option value="portret">portrét</option><option value="krajina">scéna, celá postava</option></select></div></div>
+        <div class="f"><label for="aiSmooth" title="Slije plochy, smaže lesky, odrazy a šum">Vyhlazení lesků <span id="aiSmoothV">6</span></label><div class="in"><input id="aiSmooth" class="cartp" type="range" min="0" max="10" value="6" style="accent-color:var(--accent)"></div></div>
+        <div class="f"><label for="aiColors">Barvy</label><div class="in"><input id="aiColors" class="cartp" type="number" min="2" max="24" step="1" value="8"></div></div>
+        <div class="f"><label for="aiDetail" title="Vlevo méně dílků, vpravo víc detailů">Detail (dílky) <span id="aiDetailV">4</span></label><div class="in"><input id="aiDetail" class="cartp" type="range" min="1" max="10" value="4" style="accent-color:var(--accent)"></div></div>
+        <div class="f"><label for="aiLineMode">Obrysy</label><div class="in"><select id="aiLineMode" class="cartp"><option value="ai" selected>AI kresba</option><option value="regions">z hranic ploch</option><option value="none">žádné</option></select></div></div>
+        <div class="f"><label for="aiSens" title="Víc = víc čar a detailů">Citlivost čar <span id="aiSensV">5</span></label><div class="in"><input id="aiSens" class="cartp" type="range" min="1" max="10" value="5" style="accent-color:var(--accent)"></div></div>
+        <div class="f"><label for="aiWidth">Tloušťka čar <span id="aiWidthV">3</span></label><div class="in"><input id="aiWidth" class="cartp" type="range" min="1" max="5" value="3" style="accent-color:var(--accent)"></div></div>
       </div>
       <div class="dl">
-        <button class="btn primary aib" id="aiCart" type="button">Udělat kreslený obrázek</button>
+        <button class="btn primary aib" id="aiCart" type="button">Použít</button>
         <button class="btn" id="aiUndo" type="button" hidden>Vrátit originál</button>
       </div>
+      <p class="hint" id="cartHint">Po „Použít“ se každá změna nastavení sama přepočítá z původního obrázku, takže můžeš ladit posuvníky.</p>
       <p class="hint" id="aiHint">U fotky nejdřív odstraň pozadí, pak udělej kreslený obrázek. Vybrat kliknutím: ohraničí postavu tažením, klikem přidáš část, Shift + klikem ubereš. Zvětšení pomůže malým a zubatým obrázkům.</p>
     </div>
 
@@ -882,15 +886,16 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     if (!r.ok) throw new Error(j.detail || "server " + r.status);
     return pngImage(j.img);
   }
-  async function aiDo(op, params, what, label, done) {
+  async function aiDo(op, params, what, label, done, baseOverride) {
     if (!src || aiBusy) return;
+    if (op !== "cartoon") cartBase = null;
     aiBusy = true; document.querySelectorAll(".aib").forEach((b) => (b.disabled = true)); busy(true);
     const t0 = Date.now();
     try {
-      const base = op === "select" ? aiBase : src;
+      const base = baseOverride || (op === "select" ? aiBase : src);
       const im = await aiCall(op, params, base, what);
       const keepBase = op === "select";
-      aiKeep = keepBase;
+      aiKeep = keepBase || op === "cartoon";
       loadImage(im, origLabel + " (" + label + ")", true);
       $("aiUndo").hidden = false; $("vOrig").hidden = false;
       pendingMsg = done + " (" + ((Date.now() - t0) / 1000).toFixed(1) + " s)";
@@ -901,9 +906,26 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   $("aiBgA").addEventListener("click", () => aiDo("bg", { kind: "anime" }, "Odstraňuji pozadí", "bez pozadí", "Pozadí odstraněno."));
   $("aiBgP").addEventListener("click", () => aiDo("bg", { kind: "photo" }, "Odstraňuji pozadí", "bez pozadí", "Pozadí odstraněno."));
   $("aiUp").addEventListener("click", () => aiDo("upscale", { quality: "auto" }, "Zvětšuji a čistím obrázek", "zvětšeno", "Obrázek zvětšen 4× a vyčištěn."));
-  $("aiCart").addEventListener("click", () => aiDo("cartoon", { style: $("aiStyle").value, colors: +$("aiColors").value || 8, detail: +$("aiDetail").value, lines: $("aiLines").checked },
-    "Kreslím obrázek", "kreslený", "Hotovo. Barvy a počet vrstev nastavíš níž, obrysy se staly linkami."));
-  $("aiUndo").addEventListener("click", () => { aiBase = null; aiPts = []; aiBox = null; setAiSel(false); $("vOrig").click(); $("aiUndo").hidden = true; });
+  // úpravy obrázku: vždy z téhož výchozího obrázku (cartBase), změny posuvníků se samy přepočítají
+  let cartBase = null, cartTimer = 0, cartAgain = false;
+  const cartParams = () => ({ style: $("aiStyle").value, smooth: +$("aiSmooth").value, colors: +$("aiColors").value || 8, detail: +$("aiDetail").value,
+    lineMode: $("aiLineMode").value, sens: +$("aiSens").value, width: +$("aiWidth").value });
+  async function cartRun() {
+    if (!src) return;
+    if (aiBusy) { cartAgain = true; return; }
+    if (!cartBase) cartBase = src;
+    await aiDo("cartoon", cartParams(), "Upravuji obrázek", "upraveno", "Hotovo. Posuvníky můžeš dál ladit, barvy a vrstvy nastavíš níž.", cartBase);
+    if (cartAgain) { cartAgain = false; cartRun(); }
+  }
+  $("aiCart").addEventListener("click", cartRun);
+  document.querySelectorAll(".cartp").forEach((el) => {
+    const v = $(el.id + "V");
+    el.addEventListener("input", () => { if (v) v.textContent = el.value; });
+    el.addEventListener("change", () => { if (!cartBase) return; clearTimeout(cartTimer); cartTimer = setTimeout(cartRun, 400); });
+  });
+  $("aiSens").closest(".f").hidden = $("aiLineMode").value !== "ai";
+  $("aiLineMode").addEventListener("change", () => { $("aiSens").closest(".f").hidden = $("aiLineMode").value !== "ai"; });
+  $("aiUndo").addEventListener("click", () => { cartBase = null; aiBase = null; aiPts = []; aiBox = null; setAiSel(false); $("vOrig").click(); $("aiUndo").hidden = true; });
   function setAiSel(on) {
     aiSelMode = on; $("aiSel").setAttribute("aria-pressed", String(on));
     $("aiSel").textContent = on ? "Hotovo s výběrem" : "Vybrat kliknutím";
@@ -998,7 +1020,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   function fromFile(file) {
     if (!file || !file.type.startsWith("image/")) { $("msg").textContent = "Tohle není obrázek. Vyber PNG nebo JPG."; return; }
     const url = URL.createObjectURL(file), img = new Image();
-    img.onload = () => { origImg = img; loadImage(img, file.name); };
+    img.onload = () => { origImg = img; cartBase = null; loadImage(img, file.name); };
     img.onerror = () => { $("msg").textContent = "Obrázek se nepodařilo načíst."; };
     img.src = url;
   }
