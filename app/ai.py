@@ -544,7 +544,9 @@ def _faces(rgb: np.ndarray):
     s = min(1.0, 900 / max(g.shape))
     g = cv2.equalizeHist(cv2.resize(g, None, fx=s, fy=s, interpolation=cv2.INTER_AREA))
     det = cv2.CascadeClassifier(str(xml)).detectMultiScale(g, 1.1, 6, minSize=(max(20, g.shape[0] // 40),) * 2)
-    return [tuple(int(v / s) for v in f) for f in det]
+    det = [tuple(int(v / s) for v in f) for f in det]
+    top = max((f[2] for f in det), default=0)
+    return [f for f in det if f[2] >= 0.45 * top]        # malé „obličeje“ vedle velkého bývají omyl (ruka, vzor)
 
 
 def _merge_shades(idx: np.ndarray, cent: np.ndarray, fg: np.ndarray, keep: float = 0):
@@ -607,7 +609,10 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
     fg_full = rgba[..., 3] > 127
     rgb = _flatten(rgba)
     aiedge = ai_lines(rgb, 0.55 + 0.035 * float(np.clip(sens, 1, 10))) & fg_full if line_mode == "ai" else None
-    faces = _faces(rgb)
+    faces = [f for f in _faces(rgb) if fg_full[f[1]:f[1] + f[3], f[0]:f[0] + f[2]].mean() > 0.6]
+    face_full = np.zeros((H, W), bool)
+    for x, y, fw, fh in faces:
+        face_full[max(0, y):y + fh, max(0, x):x + fw] = True
     if style not in ("none",):
         rgb = _animegan(rgb, style)
     # plochy hledat v menším rozlišení, hranice pak hladce zvětšit
@@ -712,7 +717,7 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
         n, cc, st, _ = cv2.connectedComponentsWithStats((fgF & ~edge).astype(np.uint8), connectivity=4)
         tiny = np.zeros(n, bool)
         tiny[1:] = st[1:, cv2.CC_STAT_AREA] < H * W * (0.0012 - 0.0001 * d)
-        edge |= tiny[cc]
+        edge |= tiny[cc] & ~face_full                     # v obličeji ne: bělmo a duhovka by zčernaly
         out[edge] = (22, 20, 24)
         fgF = fgF | edge
     # odtržené drobky mimo postavu (zbytky pozadí) pryč
