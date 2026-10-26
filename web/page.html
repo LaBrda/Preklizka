@@ -163,6 +163,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       </label>
       <input type="file" id="file" accept="image/*" hidden>
       <div class="file-name" id="fname">Ukázka: kreslené autíčko</div>
+      <button class="btn" id="undoBtn" type="button" disabled title="Vrátit poslední změnu obrázku">↶ Zpět</button>
     </div>
 
     <div class="sec" id="aiSec" hidden>
@@ -192,7 +193,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
         <button class="btn primary aib" id="aiCart" type="button">Použít</button>
         <button class="btn" id="aiUndo" type="button" hidden>Vrátit originál</button>
       </div>
-      <p class="hint" id="cartHint">Po „Použít“ se každá změna nastavení sama přepočítá z původního obrázku, takže můžeš ladit posuvníky.</p>
+      <p class="hint" id="cartHint">Nastav posuvníky a klikni na Použít. Další „Použít znovu“ vychází z obrázku před úpravou, takže se úpravy nevrství. Krok zpět vrátí tlačítko ↶ Zpět.</p>
       <p class="hint" id="aiHint">U fotky nejdřív odstraň pozadí, pak udělej kreslený obrázek. Vybrat kliknutím: ohraničí postavu tažením, klikem přidáš část, Shift + klikem ubereš. Zvětšení pomůže malým a zubatým obrázkům.</p>
     </div>
 
@@ -823,13 +824,13 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       const c = document.createElement("canvas"); c.width = w; c.height = h;
       c.getContext("2d").drawImage(img, 0, 0, w, h);
       URL.revokeObjectURL(url);
-      try { loadImage(c, origLabel + " (křivky)", true); $("vOrig").hidden = false; pendingMsg = "Vrstvy se teď počítají z křivek."; view = "asm"; }
+      try { pushHist(); lastOp = "vec"; loadImage(c, origLabel + " (křivky)", true); $("vOrig").hidden = false; pendingMsg = "Vrstvy se teď počítají z křivek."; view = "asm"; }
       catch (e) { $("msg").textContent = "Prohlížeč nedovolil převést křivky zpět na obrázek. Stáhni křivky SVG a nahraj je jako obrázek."; }
     };
     img.onerror = () => { $("msg").textContent = "Křivky se nepodařilo vykreslit."; };
     img.src = url;
   });
-  $("vOrig").addEventListener("click", () => { if (!orig) return; src = orig; bgSeeds = []; fgSeeds = []; $("fname").textContent = origLabel; $("vOrig").hidden = true; pendingMsg = "Vrstvy se zase počítají z originálu."; analyze(); });
+  $("vOrig").addEventListener("click", () => { if (!orig) return; pushHist(); lastOp = "orig"; cartBase = null; src = orig; bgSeeds = []; fgSeeds = []; $("fname").textContent = origLabel; $("vOrig").hidden = true; pendingMsg = "Vrstvy se zase počítají z originálu."; analyze(); });
   let origLabel = "", pendingMsg = "";
 
   // ---- stahování: v Claude přes potvrzení, jinde normální stažení ----
@@ -886,6 +887,22 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     if (!r.ok) throw new Error(j.detail || "server " + r.status);
     return pngImage(j.img);
   }
+  // historie změn obrázku pro tlačítko Zpět
+  const hist = [];
+  function pushHist() {
+    hist.push({ src, label: $("fname").textContent, cartBase, aiBase, aiPts: aiPts.slice(), aiBox });
+    if (hist.length > 20) hist.shift();
+    $("undoBtn").disabled = false; $("undoBtn").textContent = `↶ Zpět (${hist.length})`;
+  }
+  $("undoBtn").addEventListener("click", () => {
+    const h = hist.pop(); if (!h || aiBusy) return;
+    src = h.src; cartBase = h.cartBase; aiBase = h.aiBase; aiPts = h.aiPts; aiBox = h.aiBox;
+    bgSeeds = []; fgSeeds = []; $("fname").textContent = h.label;
+    $("undoBtn").disabled = !hist.length; $("undoBtn").textContent = hist.length ? `↶ Zpět (${hist.length})` : "↶ Zpět";
+    $("aiCart").textContent = "Použít";
+    lastOp = ""; pendingMsg = "Vráceno o krok zpět."; analyze();
+  });
+  let lastOp = "";
   async function aiDo(op, params, what, label, done, baseOverride) {
     if (!src || aiBusy) return;
     if (op !== "cartoon") cartBase = null;
@@ -896,6 +913,8 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       const im = await aiCall(op, params, base, what);
       const keepBase = op === "select";
       aiKeep = keepBase || op === "cartoon";
+      if (!(op === "cartoon" && lastOp === "cartoon")) pushHist();   // opakované Použít nahradí předchozí úpravu
+      lastOp = op;
       loadImage(im, origLabel + " (" + label + ")", true);
       $("aiUndo").hidden = false; $("vOrig").hidden = false;
       pendingMsg = done + " (" + ((Date.now() - t0) / 1000).toFixed(1) + " s)";
@@ -917,11 +936,11 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     await aiDo("cartoon", cartParams(), "Upravuji obrázek", "upraveno", "Hotovo. Posuvníky můžeš dál ladit, barvy a vrstvy nastavíš níž.", cartBase);
     if (cartAgain) { cartAgain = false; cartRun(); }
   }
-  $("aiCart").addEventListener("click", cartRun);
+  $("aiCart").addEventListener("click", () => { $("aiCart").textContent = "Použít"; cartRun(); });
   document.querySelectorAll(".cartp").forEach((el) => {
     const v = $(el.id + "V");
     el.addEventListener("input", () => { if (v) v.textContent = el.value; });
-    el.addEventListener("change", () => { if (!cartBase) return; clearTimeout(cartTimer); cartTimer = setTimeout(cartRun, 400); });
+    el.addEventListener("change", () => { if (cartBase) $("aiCart").textContent = "Použít znovu"; });
   });
   $("aiSens").closest(".f").hidden = $("aiLineMode").value !== "ai";
   $("aiLineMode").addEventListener("change", () => { $("aiSens").closest(".f").hidden = $("aiLineMode").value !== "ai"; });
@@ -1020,7 +1039,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   function fromFile(file) {
     if (!file || !file.type.startsWith("image/")) { $("msg").textContent = "Tohle není obrázek. Vyber PNG nebo JPG."; return; }
     const url = URL.createObjectURL(file), img = new Image();
-    img.onload = () => { origImg = img; cartBase = null; loadImage(img, file.name); };
+    img.onload = () => { origImg = img; cartBase = null; lastOp = ""; hist.length = 0; $("undoBtn").disabled = true; $("undoBtn").textContent = "↶ Zpět"; loadImage(img, file.name); };
     img.onerror = () => { $("msg").textContent = "Obrázek se nepodařilo načíst."; };
     img.src = url;
   }
