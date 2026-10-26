@@ -447,7 +447,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   function analyze() {
     cancelBuilds(); clearTimeout(timer); buildAgain = false;
     later(async () => {
-      an = LaserLayers.analyze(src.data, src.w, src.h, Math.max(2, Math.min(16, parseInt($("nColors").value) || 12)), { tol: +$("bgTol").value || 30, bgSeeds, fgSeeds });
+      an = LaserLayers.analyze(src.data, src.w, src.h, Math.max(2, Math.min(16, parseInt($("nColors").value) || 12)), { tol: +$("bgTol").value || 30, bgSeeds, fgSeeds, exact: !!src.exact });
       drawBg();
       roles = defaultRoles(); manualRole = new Set();
       cellColor = new Map(); holeEdit = new Int8Array(an.W * an.H); outlineKey = ""; erase = new Uint8Array(an.W * an.H); colorClicks = []; eraseVer++;
@@ -917,6 +917,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       if (!(op === "cartoon" && lastOp === "cartoon")) pushHist();   // opakované Použít nahradí předchozí úpravu
       lastOp = op;
       loadImage(im, origLabel + " (" + label + ")", true);
+      if (op === "cartoon") src.exact = true;            // barvy už jsou hotové, vrstvy je nemají znovu slučovat
       $("aiUndo").hidden = false; $("vOrig").hidden = false;
       pendingMsg = done + " (" + ((Date.now() - t0) / 1000).toFixed(1) + " s)";
     } catch (e) { console.error(e); $("msg").textContent = "AI: " + e.message; busy(false); }

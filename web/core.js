@@ -489,7 +489,7 @@
     }
     let cnt = 0;
     for (let i = 0; i < fg.length; i++) if (fg[i]) cnt++;
-    let cent = dedupe(kmeans(flatSample((i, ch) => rgba[i * 4 + ch], fg, W, H, 40000), nColors, 12), 22);
+    let cent = dedupe(kmeans(flatSample((i, ch) => rgba[i * 4 + ch], fg, W, H, 40000), nColors, 12), bg && bg.exact ? 8 : 22);
     cent.sort((a, b) => lum(a) - lum(b));
     const lab = new Int8Array(W * H).fill(-1);
     for (let i = 0; i < fg.length; i++) {
@@ -503,7 +503,7 @@
       lab[i] = best;
     }
     // přechodové barvy (jen tenké lemy kolem linek) a malé plochy přebarvit na nejbližší větší
-    const minPx = Math.max(16, Math.round(W * H * 0.00006));
+    const minPx = Math.max(bg && bg.exact ? 6 : 16, Math.round(W * H * (bg && bg.exact ? 0.00002 : 0.00006)));
     const thinR = Math.max(2, Math.round(Math.max(W, H) / 400));
     const bad = new Uint8Array(W * H);
     for (let c = 0; c < cent.length; c++) {
@@ -511,7 +511,7 @@
       let area = 0;
       for (let i = 0; i < m.length; i++) if (lab[i] === c) { m[i] = 1; area++; }
       if (!area) continue;
-      if (c > 0) {
+      if (c > 0 && !(bg && bg.exact)) {                    // z Úprav jsou tenké barvy linky (oči, rty), ne přechody
         const core = open(m, W, H, thinR);
         let ca = 0;
         for (let i = 0; i < core.length; i++) ca += core[i];
@@ -550,6 +550,7 @@
     // Drobné plochy (pod 1,5 %) se slučují ochotněji, ať je barev co nejméně.
     const labC = cent.map(toLab), totA = area.reduce((x, y) => x + y, 0) || 1;
     for (;;) {
+      if (bg && bg.exact) break;                          // obrázek z Úprav: odstíny (stíny na kůži) už jsou vybrané
       let pa = -1, pb = -1, pd = 1e9;
       for (let a = 0; a < cent.length; a++) for (let b = 0; b < cent.length; b++) {
         if (a === b || !area[a] || !area[b] || area[a] > area[b] * 0.6) continue;
