@@ -21,7 +21,7 @@ MODELS = {   # jméno -> přibližná velikost v MB
     "isnet-anime.onnx": 168, "isnet-general-use.onnx": 170, "birefnet.onnx": 973,
     "sam-encoder.onnx": 95, "sam-decoder.onnx": 9,
     "esrgan-anime.onnx": 17, "esrgan-fast.onnx": 3,
-    "cartoon-portret.onnx": 9, "cartoon-krajina.onnx": 9,
+    "cartoon-portret.onnx": 9, "cartoon-krajina.onnx": 9, "lineart-anime.onnx": 17,
 }
 
 
@@ -95,6 +95,8 @@ def needed(op: str, p: dict, gpu: bool) -> list[str]:
         return ["esrgan-anime.onnx" if (gpu and p.get("quality", "auto") != "fast") or p.get("quality") == "best" else "esrgan-fast.onnx"]
     if op == "cartoon":
         st = p.get("style", "portret")
+        if st == "flatai":
+            return ["lineart-anime.onnx"]
         return [] if st in ("none", "poly", "flat") else ["cartoon-krajina.onnx" if st == "krajina" else "cartoon-portret.onnx"]
     raise ValueError("Neznámá AI funkce.")
 
@@ -506,6 +508,19 @@ def l0_smooth(rgb: np.ndarray, lam: float = 0.02, kappa: float = 2.0, beta_max: 
     return (np.clip(S, 0, 1) * 255 + 0.5).astype(np.uint8)
 
 
+def ai_lines(rgb: np.ndarray) -> np.ndarray:
+    """Obrysy jako kresba tužkou (Informative Drawings, styl anime). Vrací masku čar v plném rozlišení."""
+    import cv2
+    H, W = rgb.shape[:2]
+    k = min(1.0, 1024 / max(H, W))
+    h, w = max(8, int(H * k) // 4 * 4), max(8, int(W * k) // 4 * 4)
+    x = cv2.resize(rgb, (w, h), interpolation=cv2.INTER_AREA).astype(np.float32).transpose(2, 0, 1)[None] / 255.0
+    name = "lineart-anime.onnx"
+    o = _run(name, {_session(name).get_inputs()[0].name: x})[0][0, 0]
+    o = cv2.resize(np.clip(o, 0, 1), (W, H), interpolation=cv2.INTER_LINEAR)
+    return o < 0.72
+
+
 def _majority(idx: np.ndarray, k: int, r: int) -> np.ndarray:
     import cv2
     best = np.full(idx.shape, -1.0, np.float32)
@@ -564,7 +579,8 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
     d = int(np.clip(detail, 1, 10))
     fg_full = rgba[..., 3] > 127
     rgb = _flatten(rgba)
-    if style not in ("none", "flat"):
+    aiedge = ai_lines(rgb) & fg_full if style == "flatai" and lines else None
+    if style not in ("none", "flat", "flatai"):
         rgb = _animegan(rgb, style)
     # plochy hledat v menším rozlišení, hranice pak hladce zvětšit
     lim = 500 + 50 * d
@@ -572,8 +588,8 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
     h, w = max(8, round(H * s)), max(8, round(W * s))
     small = cv2.resize(rgb, (w, h), interpolation=cv2.INTER_AREA)
     fg = cv2.resize(fg_full.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST) > 0
-    if style == "flat":                                  # bez AI: lesky a šum pryč, plochy jednobarevné
-        sm = l0_smooth(small, 0.004 + 0.004 * (10 - d))
+    if style in ("flat", "flatai"):                      # lesky a šum pryč, plochy jednobarevné (u AI obrysů víc, detail dodají čáry)
+        sm = l0_smooth(small, (0.004 + 0.004 * (10 - d)) * (1.6 if style == "flatai" else 1))
     else:
         sm = cv2.pyrMeanShiftFiltering(small, 6 + (10 - d), 18 + 3 * (10 - d))
     lab = cv2.cvtColor(sm, cv2.COLOR_RGB2LAB).reshape(-1, 3).astype(np.float32)
@@ -644,9 +660,17 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
         fe = np.zeros((H, W), bool)
         fe[:, 1:] |= fgF[:, 1:] != fgF[:, :-1]
         fe[1:, :] |= fgF[1:, :] != fgF[:-1, :]
-        edge = (edge & fgF) | fe
+        edge = fe if aiedge is not None else (edge & fgF) | fe   # s AI kresbou jen její čáry (hranice ploch od lesků ne)
         edge = cv2.dilate(edge.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (t, t))) > 0
-        edge |= dark & fgF
+        if aiedge is None:
+            edge |= dark & fgF
+        if aiedge is not None:                           # AI kresba: detaily (naviják, mřížka, oči) jako čáry
+            ae = cv2.morphologyEx(aiedge.astype(np.uint8), cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))   # spojit přerušované tahy
+            n, cc, st, _ = cv2.connectedComponentsWithStats(ae, connectivity=8)
+            keep = np.zeros(n, bool)
+            keep[1:] = st[1:, cv2.CC_STAT_AREA] >= max(15, H * W * 0.000012 * (11 - d))
+            ae = cv2.dilate(keep[cc].astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (max(2, t - 1),) * 2)) > 0
+            edge |= ae & fgF
         # drobné plošky uzavřené linkami zalít linkou (jinak z nich jsou mini dílky)
         n, cc, st, _ = cv2.connectedComponentsWithStats((fgF & ~edge).astype(np.uint8), connectivity=4)
         tiny = np.zeros(n, bool)
