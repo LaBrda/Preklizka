@@ -1,0 +1,57 @@
+/* Vzhled „oko“: tmavé sklo, zářivá, ale temná modrozelená jako duhovka. Vkládá se do obou stránek (build_web.py). */
+:root, :root[data-theme], :root:not([data-theme="light"]) {
+  --bg: #020c11; --panel: rgba(10, 38, 48, .52); --surface: rgba(10, 38, 48, .52);
+  --fg: #dcf5f2; --muted: #86b3b4; --line: rgba(110, 225, 230, .16);
+  --accent: #19d3c2; --accent-fg: #011417; --cyan: #3fe4ee; --sheet: rgba(3, 18, 25, .62);
+  --board: #1d3a40; --cut: #ff7a5c; --engrave: #7fb6ff; --detail: #63e39a;
+  --glow: 0 0 18px rgba(25, 211, 194, .35);
+  color-scheme: dark;
+}
+html { background: #010508; }
+body {
+  background:
+    radial-gradient(circle at 78% 18%, rgba(30, 230, 210, .30), transparent 32%),
+    radial-gradient(circle at 78% 18%, rgba(10, 120, 170, .35), transparent 48%),
+    repeating-conic-gradient(from 0deg at 78% 18%, rgba(70, 240, 225, .045) 0deg 1.5deg, transparent 1.5deg 5deg),
+    radial-gradient(circle at 15% 85%, rgba(20, 70, 190, .30), transparent 45%),
+    radial-gradient(ellipse at 50% 40%, #06303a 0%, #031821 45%, #01080c 100%) !important;
+  background-attachment: fixed !important;
+  color: var(--fg);
+}
+.panel, .stage, .sec .colors, aside.panel, section.panel {
+  background: linear-gradient(150deg, rgba(22, 78, 92, .42), rgba(4, 20, 30, .58)) !important;
+  border: 1px solid var(--line) !important;
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .06);
+}
+h1 {
+  background: linear-gradient(100deg, #e8fffb 0%, #5cf0de 45%, #2b9fe0 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  text-shadow: 0 0 30px rgba(40, 220, 210, .25);
+}
+.btn, .tabs button, .tab, .chip, .seg, .vis, .appsw, .f .in, .f input, .f select, .range input.num, .drop, .cx, .msw, .pal button {
+  border-color: var(--line) !important;
+}
+.btn, .tab, .chip, .f .in, .f input, .f select, .range input.num {
+  background: rgba(6, 30, 40, .55) !important; color: var(--fg) !important;
+}
+.btn:hover, .tab:hover { border-color: rgba(60, 230, 220, .5) !important; box-shadow: var(--glow); }
+.btn.primary, .btn:not(.ghost)#run, #run {
+  background: linear-gradient(120deg, #18d6c4, #1597d6) !important; color: var(--accent-fg) !important;
+  border-color: transparent !important; box-shadow: var(--glow);
+}
+.btn.primary:hover, #run:hover { filter: brightness(1.1); }
+.tab[aria-selected="true"], .seg button[aria-pressed="true"], .vbtn[aria-pressed="true"], .appsw span {
+  background: linear-gradient(120deg, rgba(25, 211, 194, .9), rgba(21, 151, 214, .9)) !important; color: var(--accent-fg) !important;
+}
+.tabs button[aria-selected="true"] { color: var(--fg) !important; border-color: var(--accent) !important; background: transparent !important; }
+.drop { background: rgba(4, 24, 32, .35); }
+.drop:hover, .drop.over { border-color: var(--accent) !important; background: rgba(25, 211, 194, .08) !important; }
+input[type="range"], .check input { accent-color: var(--accent) !important; }
+.busy { background: rgba(2, 14, 20, .65) !important; color: var(--cyan); text-shadow: var(--glow); }
+.stage .flat canvas, .stage img, #clines, #vecimg { box-shadow: 0 6px 30px rgba(0, 0, 0, .45); }
+#view3d { background: radial-gradient(ellipse at 50% 35%, rgba(20, 80, 95, .5), rgba(2, 12, 18, .7)) !important; }
+.sheet .svgbox { background: #e9dcc2 !important; }
+.sil canvas { background: rgba(2, 14, 20, .6) !important; }
+::selection { background: rgba(25, 211, 194, .35); }

@@ -8,7 +8,13 @@ version = (root.parent / "VERSION").read_text(encoding="utf-8").strip()
 HEAD = '<!doctype html>\n<html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>\n'
 
 
+THEME = (root / "theme.css").read_text(encoding="utf-8") if (root / "theme.css").exists() else ""
+
+
 def write(name: str, html: str) -> None:
+    if THEME:                                                # vzhled „oko“ za původní styly, ať je přebije
+        i = html.find("</style>")
+        html = html[:i] + "\n" + THEME + html[i:] if i >= 0 else "<style>" + THEME + "</style>" + html
     (root / name).write_text(HEAD + html + "\n</body></html>\n", encoding="utf-8")
     print(f"web/{name}:", len(html) // 1024, "kB")
 
