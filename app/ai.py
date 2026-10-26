@@ -95,7 +95,7 @@ def needed(op: str, p: dict, gpu: bool) -> list[str]:
         return ["esrgan-anime.onnx" if (gpu and p.get("quality", "auto") != "fast") or p.get("quality") == "best" else "esrgan-fast.onnx"]
     if op == "cartoon":
         st = p.get("style", "portret")
-        return [] if st in ("none", "poly") else ["cartoon-krajina.onnx" if st == "krajina" else "cartoon-portret.onnx"]
+        return [] if st in ("none", "poly", "flat") else ["cartoon-krajina.onnx" if st == "krajina" else "cartoon-portret.onnx"]
     raise ValueError("Neznámá AI funkce.")
 
 
@@ -485,6 +485,27 @@ def _animegan(rgb: np.ndarray, style: str) -> np.ndarray:
     return cv2.resize(y, (w, h), interpolation=cv2.INTER_CUBIC)
 
 
+def l0_smooth(rgb: np.ndarray, lam: float = 0.02, kappa: float = 2.0, beta_max: float = 1e5) -> np.ndarray:
+    """L0 vyhlazení gradientu (Xu a kol. 2011): plochy slije do jedné barvy, smaže lesky, odrazy a šum, hrany nechá ostré."""
+    S = rgb.astype(np.float32) / 255.0
+    H, W = S.shape[:2]
+    fx = 2 - 2 * np.cos(2 * np.pi * np.arange(W) / W)
+    fy = 2 - 2 * np.cos(2 * np.pi * np.arange(H) / H)
+    den2 = (fy[:, None] + fx[None, :])[..., None]
+    N1 = np.fft.fft2(S, axes=(0, 1))
+    beta = 2 * lam
+    while beta < beta_max:
+        h = np.concatenate([np.diff(S, axis=1), S[:, :1] - S[:, -1:]], 1)
+        v = np.concatenate([np.diff(S, axis=0), S[:1] - S[-1:]], 0)
+        t = (h ** 2 + v ** 2).sum(2) < lam / beta
+        h[t] = 0
+        v[t] = 0
+        N2 = np.concatenate([h[:, -1:] - h[:, :1], -np.diff(h, axis=1)], 1) + np.concatenate([v[-1:] - v[:1], -np.diff(v, axis=0)], 0)
+        S = np.real(np.fft.ifft2((N1 + beta * np.fft.fft2(N2, axes=(0, 1))) / (1 + beta * den2), axes=(0, 1)))
+        beta *= kappa
+    return (np.clip(S, 0, 1) * 255 + 0.5).astype(np.uint8)
+
+
 def _majority(idx: np.ndarray, k: int, r: int) -> np.ndarray:
     import cv2
     best = np.full(idx.shape, -1.0, np.float32)
@@ -543,7 +564,7 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
     d = int(np.clip(detail, 1, 10))
     fg_full = rgba[..., 3] > 127
     rgb = _flatten(rgba)
-    if style != "none":
+    if style not in ("none", "flat"):
         rgb = _animegan(rgb, style)
     # plochy hledat v menším rozlišení, hranice pak hladce zvětšit
     lim = 500 + 50 * d
@@ -551,7 +572,10 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
     h, w = max(8, round(H * s)), max(8, round(W * s))
     small = cv2.resize(rgb, (w, h), interpolation=cv2.INTER_AREA)
     fg = cv2.resize(fg_full.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST) > 0
-    sm = cv2.pyrMeanShiftFiltering(small, 6 + (10 - d), 18 + 3 * (10 - d))
+    if style == "flat":                                  # bez AI: lesky a šum pryč, plochy jednobarevné
+        sm = l0_smooth(small, 0.004 + 0.004 * (10 - d))
+    else:
+        sm = cv2.pyrMeanShiftFiltering(small, 6 + (10 - d), 18 + 3 * (10 - d))
     lab = cv2.cvtColor(sm, cv2.COLOR_RGB2LAB).reshape(-1, 3).astype(np.float32)
     sel = fg.reshape(-1) if fg.any() else np.ones(h * w, bool)
     samp = lab[sel]
