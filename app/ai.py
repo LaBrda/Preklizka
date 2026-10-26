@@ -534,7 +534,20 @@ def _majority(idx: np.ndarray, k: int, r: int) -> np.ndarray:
     return out
 
 
-def _merge_shades(idx: np.ndarray, cent: np.ndarray, fg: np.ndarray):
+def _faces(rgb: np.ndarray):
+    """Obličeje (x, y, w, h) – klasický detektor OpenCV, bez dalšího modelu."""
+    import cv2
+    xml = Path(__file__).resolve().parent / "haarcascade_frontalface_default.xml"
+    if not xml.exists() or not hasattr(cv2, "CascadeClassifier"):
+        return []
+    g = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+    s = min(1.0, 900 / max(g.shape))
+    g = cv2.equalizeHist(cv2.resize(g, None, fx=s, fy=s, interpolation=cv2.INTER_AREA))
+    det = cv2.CascadeClassifier(str(xml)).detectMultiScale(g, 1.1, 6, minSize=(max(20, g.shape[0] // 40),) * 2)
+    return [tuple(int(v / s) for v in f) for f in det]
+
+
+def _merge_shades(idx: np.ndarray, cent: np.ndarray, fg: np.ndarray, keep: float = 0):
     """Sloučit odstíny jedné barvy: osvětlená a stinná červená, šedé odlesky ve skle, skoro stejné barvy.
     Výsledná barva = barva největší části (nátěr má být čistý, ne kalný průměr)."""
     k = len(cent)
@@ -556,7 +569,11 @@ def _merge_shades(idx: np.ndarray, cent: np.ndarray, fg: np.ndarray):
         for j in range(i + 1, k):
             de = math.sqrt((L[i] - L[j]) ** 2 + (A[i] - A[j]) ** 2 + (B[i] - B[j]) ** 2)
             dh = abs((hue[i] - hue[j] + 180) % 360 - 180)
-            same = de < 14
+            same = de < 14 - keep
+            if keep:                                         # postavy: světlá a stinná kůže zůstanou zvlášť
+                if same:
+                    pairs.append((de, i, j))
+                continue
             same |= C[i] > 25 and C[j] > 25 and dh < 14 and abs(L[i] - L[j]) < 32       # světlá a stinná stejná barva
             same |= (C[i] < 12 and C[j] < 12 and abs(L[i] - L[j]) < 22 and min(L[i], L[j]) > 18   # šedé (sklo, kov), ne černá
                      and (max(L[i], L[j]) < 84 or min(L[i], L[j]) >= 84))                       # ani bílá (pruh, nárazník)
@@ -574,7 +591,7 @@ def _merge_shades(idx: np.ndarray, cent: np.ndarray, fg: np.ndarray):
 
 
 def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bool = True, detail: int = 5,
-            smooth=None, line_mode=None, sens: float = 5, width: float = 3) -> np.ndarray:
+            smooth=None, line_mode=None, sens: float = 5, width: float = 3, shades: float = 0) -> np.ndarray:
     """Kroky: (1) kreslený styl AnimeGAN, (2) vyhlazení lesků (L0, síla 0–10), (3) barvy a dílky, (4) obrysy (žádné / z ploch / AI kresba)."""
     import cv2
     from scipy import ndimage as ndi
@@ -590,6 +607,7 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
     fg_full = rgba[..., 3] > 127
     rgb = _flatten(rgba)
     aiedge = ai_lines(rgb, 0.55 + 0.035 * float(np.clip(sens, 1, 10))) & fg_full if line_mode == "ai" else None
+    faces = _faces(rgb)
     if style not in ("none",):
         rgb = _animegan(rgb, style)
     # plochy hledat v menším rozlišení, hranice pak hladce zvětšit
@@ -604,14 +622,21 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
         sm = cv2.pyrMeanShiftFiltering(small, 6 + (10 - d), 18 + 3 * (10 - d))
     lab = cv2.cvtColor(sm, cv2.COLOR_RGB2LAB).reshape(-1, 3).astype(np.float32)
     sel = fg.reshape(-1) if fg.any() else np.ones(h * w, bool)
+    face = np.zeros((h, w), bool)                        # obličej: rozšířený o vlasy a bradu
+    for x, y, fw, fh in faces:
+        x0, y0 = int((x - 0.15 * fw) * s), int((y - 0.25 * fh) * s)
+        face[max(0, y0):int((y + 1.2 * fh) * s), max(0, x0):int((x + 1.15 * fw) * s)] = True
     samp = lab[sel]
+    if face.any():                                       # obličej je malý, ale barvy pro něj musí zbýt
+        fs = lab[face.reshape(-1) & sel]
+        samp = np.concatenate([samp] + [fs] * int(np.clip(0.06 * len(samp) / max(1, len(fs)), 1, 8)))
     if len(samp) > 40000:
         samp = samp[np.random.default_rng(1).choice(len(samp), 40000, replace=False)]
     k = int(np.clip(colors, 2, 24))
     crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 40, 0.3)
     _, _, cent = cv2.kmeans(samp, k, None, crit, 4, cv2.KMEANS_PP_CENTERS)
     idx = ((lab[:, None, :] - cent[None]) ** 2).sum(-1).argmin(1).astype(np.int32).reshape(h, w)
-    idx, cent = _merge_shades(idx, cent, fg)
+    idx, cent = _merge_shades(idx, cent, fg, float(np.clip(shades, 0, 10)))
     idx = _majority(idx, k, 2)
     # dílky: malé plochy slučovat se sousedy, dokud jich nezbude cílový počet (posuvník Detail)
     target = 10 + 7 * d                                   # detail 1 -> ~17 ploch, 10 -> ~80
@@ -626,6 +651,8 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
             sm_ = np.zeros(n, bool)
             sm_[1:] = st[1:, cv2.CC_STAT_AREA] < min_area
             bad |= sm_[cc]
+        if face.any():                                   # v obličeji nechat i drobné plochy (oči, rty)
+            bad &= ~face | (min_area > max(12, h * w * 0.0004) * 2.6)
         if total <= target and not bad.any():
             break
         if bad.any() and not (bad | ~fg).all():
@@ -786,7 +813,8 @@ def run(op: str, png: bytes, p: dict) -> bytes:
         res = upscale(img, p.get("quality", "auto"))
     elif op == "cartoon":
         res = cartoon(img, p.get("style", "portret"), int(p.get("colors", 8)), bool(p.get("lines", True)), int(p.get("detail", 5)),
-                      p.get("smooth"), p.get("lineMode"), float(p.get("sens", 5)), float(p.get("width", 3)))
+                      p.get("smooth"), p.get("lineMode"), float(p.get("sens", 5)), float(p.get("width", 3)),
+                      float(p.get("shades", 0)))
     else:
         raise ValueError("Neznámá AI funkce.")
     return encode(res)

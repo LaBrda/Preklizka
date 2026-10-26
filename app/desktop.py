@@ -192,7 +192,7 @@ def main() -> None:
 
     import uvicorn
     import server
-    print("Překližkové vrstvy", server.VERSION, "na", url)
+    print("Vrstvy Studio", server.VERSION, "na", url)
 
     if not use_window:
         if os.environ.get("PREKLIZKA_NO_BROWSER") != "1":
@@ -207,7 +207,7 @@ def main() -> None:
     wait_up(port)
     api = Api()
     try:
-        win = webview.create_window(f"Překližkové vrstvy v{server.VERSION}", url, js_api=api,
+        win = webview.create_window(f"Vrstvy Studio v{server.VERSION}", url, js_api=api,
                                     width=1440, height=920, min_size=(900, 600), text_select=True)
         api._window = win   # s podtržítkem: pywebview ho neprochází (jinak start „neodpovídá“)
         webview.start(private_mode=False)

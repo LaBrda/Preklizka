@@ -1,4 +1,4 @@
-"""Webový server appky Překližkové vrstvy (Docker na serveru nebo Preklizka.exe ve Windows)."""
+"""Webový server appky Vrstvy Studio (dříve Překližkové vrstvy) (Docker na serveru nebo Preklizka.exe ve Windows)."""
 from __future__ import annotations
 
 import base64
@@ -29,7 +29,7 @@ UPDATE_PASSWORD = os.environ.get("UPDATE_PASSWORD", "")
 WEB = BASE / "web"
 DESKTOP = os.environ.get("PREKLIZKA_DESKTOP") == "1"            # běží jako Preklizka.exe (samoaktualizace z GitHubu)
 
-app = FastAPI(title="Překližkové vrstvy", docs_url=None, redoc_url=None)
+app = FastAPI(title="Vrstvy Studio", docs_url=None, redoc_url=None)
 _lock = threading.Semaphore(int(os.environ.get("MAX_PARALLEL", "1")))   # nezahltit server
 
 

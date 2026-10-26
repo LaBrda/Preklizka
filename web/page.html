@@ -1,4 +1,4 @@
-<title>Překližkové vrstvy</title>
+<title>Vrstvy Studio</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
@@ -145,7 +145,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
 
 <div class="wrap">
   <header>
-    <h1>Překližkové vrstvy <span class="ver" id="ver">v__VERSION__</span></h1>
+    <h1>Vrstvy Studio <small class="sub">laserové obrazy z překližky</small> <span class="ver" id="ver">v__VERSION__</span></h1>
     <nav class="appsw" id="appsw" aria-label="Režim" hidden><span aria-current="page">Obrázek</span><a href="3d">3D model</a></nav>
     <div class="srv" id="srv" hidden>
       <span id="srvInfo"></span>
@@ -187,6 +187,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
         <div class="f"><label for="aiDetail" title="Vlevo méně dílků, vpravo víc detailů">Detail (dílky) <span id="aiDetailV">4</span></label><div class="in"><input id="aiDetail" class="cartp" type="range" min="1" max="10" value="4" style="accent-color:var(--accent)"></div></div>
         <div class="f"><label for="aiLineMode">Obrysy</label><div class="in"><select id="aiLineMode" class="cartp"><option value="ai" selected>AI kresba</option><option value="regions">z hranic ploch</option><option value="none">žádné</option></select></div></div>
         <div class="f"><label for="aiSens" title="Víc = víc čar a detailů">Citlivost čar <span id="aiSensV">5</span></label><div class="in"><input id="aiSens" class="cartp" type="range" min="1" max="10" value="5" style="accent-color:var(--accent)"></div></div>
+        <div class="f"><label for="aiShades">Stíny (postavy) <span id="aiShadesV">0</span></label><div class="in"><input id="aiShades" class="cartp" type="range" min="0" max="10" value="0" title="0 = světlá a stinná část jedné barvy se sloučí (auta). Výš = zůstanou stíny na kůži a oblečení." style="accent-color:var(--accent)"></div></div>
         <div class="f"><label for="aiWidth">Tloušťka čar <span id="aiWidthV">3</span></label><div class="in"><input id="aiWidth" class="cartp" type="range" min="1" max="5" value="3" style="accent-color:var(--accent)"></div></div>
       </div>
       <div class="dl">
@@ -270,7 +271,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     <div class="asmctl" id="asmctl">
       <button class="btn" id="explode" type="button">Rozložit</button>
       <label class="range" for="spread">Rozestup <input type="range" id="spread" min="0" max="100" value="0"></label>
-      <label class="check"><input type="checkbox" id="tilt" checked> Náklon</label>
+      <label class="check"><input type="checkbox" id="tilt"> Náklon</label>
       <div class="vis" role="group" aria-label="Zobrazené vrstvy" id="vis"></div>
     </div>
     <div class="asmctl" id="linectl" hidden>
@@ -928,7 +929,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   // úpravy obrázku: vždy z téhož výchozího obrázku (cartBase), změny posuvníků se samy přepočítají
   let cartBase = null, cartTimer = 0, cartAgain = false;
   const cartParams = () => ({ style: $("aiStyle").value, smooth: +$("aiSmooth").value, colors: +$("aiColors").value || 8, detail: +$("aiDetail").value,
-    lineMode: $("aiLineMode").value, sens: +$("aiSens").value, width: +$("aiWidth").value });
+    lineMode: $("aiLineMode").value, sens: +$("aiSens").value, width: +$("aiWidth").value, shades: +$("aiShades").value });
   async function cartRun() {
     if (!src) return;
     if (aiBusy) { cartAgain = true; return; }

@@ -55,3 +55,4 @@ input[type="range"], .check input { accent-color: var(--accent) !important; }
 .sheet .svgbox { background: #e9dcc2 !important; }
 .sil canvas { background: rgba(2, 14, 20, .6) !important; }
 ::selection { background: rgba(25, 211, 194, .35); }
+h1 .sub { font: 500 .8rem var(--mono, monospace); -webkit-text-fill-color: var(--muted); color: var(--muted); letter-spacing: .04em; vertical-align: middle; text-shadow: none; }
