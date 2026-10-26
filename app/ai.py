@@ -609,7 +609,7 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
     fg_full = rgba[..., 3] > 127
     rgb = _flatten(rgba)
     aiedge = ai_lines(rgb, 0.55 + 0.035 * float(np.clip(sens, 1, 10))) & fg_full if line_mode == "ai" else None
-    faces = [f for f in _faces(rgb) if fg_full[f[1]:f[1] + f[3], f[0]:f[0] + f[2]].mean() > 0.6]
+    faces = [] if not shades else [f for f in _faces(rgb) if fg_full[f[1]:f[1] + f[3], f[0]:f[0] + f[2]].mean() > 0.6]
     face_full = np.zeros((H, W), bool)
     for x, y, fw, fh in faces:
         face_full[max(0, y):y + fh, max(0, x):x + fw] = True
