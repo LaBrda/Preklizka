@@ -19,7 +19,7 @@ jobs:
           python-version: "3.12"
       - name: Převést do ONNX
         run: |
-          pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
           pip install onnx==1.17.0 onnxruntime==1.20.1 numpy
           python tools/export_models.py
           python -c "import onnxruntime as o,glob;[print(f,[i.shape for i in o.InferenceSession(f).get_inputs()]) for f in sorted(glob.glob('models_out/*.onnx'))]"

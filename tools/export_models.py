@@ -21,6 +21,10 @@ URLS = {
     "face_paint_512_v2.pt": "https://raw.githubusercontent.com/bryandlee/animegan2-pytorch/main/weights/face_paint_512_v2.pt",
     "paprika.pt": "https://raw.githubusercontent.com/bryandlee/animegan2-pytorch/main/weights/paprika.pt",
     "animegan_model.py": "https://raw.githubusercontent.com/bryandlee/animegan2-pytorch/main/model.py",
+    # obrysy z fotky: Informative Drawings (Chan, Durand, Isola 2022, MIT)
+    "infodraw_model.py": "https://raw.githubusercontent.com/carolineec/informative-drawings/main/model.py",
+    "infodraw_anime.pth": "https://huggingface.co/spaces/carolineec/informativedrawings/resolve/main/model.pth",
+    "infodraw_contour.pth": "https://huggingface.co/spaces/carolineec/informativedrawings/resolve/main/model2.pth",
 }
 # hotové ONNX modely jen zkopírovat (zrcadlo, ať appka stahuje z jednoho místa)
 MIRROR = {
@@ -141,6 +145,12 @@ def main():
     import animegan_model
     for pt, name in [("face_paint_512_v2.pt", "cartoon-portret.onnx"), ("paprika.pt", "cartoon-krajina.onnx")]:
         g = animegan_model.Generator()
+        g.load_state_dict(torch.load(os.path.join(SRC, pt), map_location="cpu"))
+        export(g, name, 256)
+
+    import infodraw_model
+    for pt, name in [("infodraw_anime.pth", "lineart-anime.onnx"), ("infodraw_contour.pth", "lineart-contour.onnx")]:
+        g = infodraw_model.Generator(3, 1, 3)
         g.load_state_dict(torch.load(os.path.join(SRC, pt), map_location="cpu"))
         export(g, name, 256)
 
