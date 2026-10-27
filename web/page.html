@@ -925,7 +925,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   }
   let aiKeep = false;
   $("aiBgA").addEventListener("click", () => aiDo("bg", { kind: "anime" }, "Odstraňuji pozadí", "bez pozadí", "Pozadí odstraněno."));
-  $("aiBgP").addEventListener("click", () => aiDo("bg", { kind: "photo" }, "Odstraňuji pozadí", "bez pozadí", "Pozadí odstraněno."));
+  $("aiBgP").addEventListener("click", () => aiDo("bg", { kind: "photo" }, "Odstraňuji pozadí", "bez pozadí", "Pozadí odstraněno. U fotky teď klikni na Použít v Úpravách obrázku: sjednotí odstíny a lesky, jinak je z každého odstínu jiný flek."));
   $("aiUp").addEventListener("click", () => aiDo("upscale", { quality: "auto" }, "Zvětšuji a čistím obrázek", "zvětšeno", "Obrázek zvětšen 4× a vyčištěn."));
   // úpravy obrázku: vždy z téhož výchozího obrázku (cartBase), změny posuvníků se samy přepočítají
   let cartBase = null, cartTimer = 0, cartAgain = false;
