@@ -549,7 +549,7 @@ def _faces(rgb: np.ndarray):
     return [f for f in det if f[2] >= 0.45 * top]        # malé „obličeje“ vedle velkého bývají omyl (ruka, vzor)
 
 
-def _merge_shades(idx: np.ndarray, cent: np.ndarray, fg: np.ndarray, keep: float = 0):
+def _merge_shades(idx: np.ndarray, cent: np.ndarray, fg: np.ndarray, keep: float = 0, de_thr: float = 14):
     """Sloučit odstíny jedné barvy: osvětlená a stinná červená, šedé odlesky ve skle, skoro stejné barvy.
     Výsledná barva = barva největší části (nátěr má být čistý, ne kalný průměr)."""
     k = len(cent)
@@ -571,13 +571,13 @@ def _merge_shades(idx: np.ndarray, cent: np.ndarray, fg: np.ndarray, keep: float
         for j in range(i + 1, k):
             de = math.sqrt((L[i] - L[j]) ** 2 + (A[i] - A[j]) ** 2 + (B[i] - B[j]) ** 2)
             dh = abs((hue[i] - hue[j] + 180) % 360 - 180)
-            same = de < 14 - keep
+            same = de < de_thr - keep
             if keep:                                         # postavy: světlá a stinná kůže zůstanou zvlášť
                 if same:
                     pairs.append((de, i, j))
                 continue
             same |= C[i] > 25 and C[j] > 25 and dh < 14 and abs(L[i] - L[j]) < 32       # světlá a stinná stejná barva
-            same |= (C[i] < 12 and C[j] < 12 and abs(L[i] - L[j]) < 22 and min(L[i], L[j]) > 18   # šedé (sklo, kov), ne černá
+            same |= (C[i] < 12 and C[j] < 12 and abs(L[i] - L[j]) < (22 if de_thr >= 14 else 10) and min(L[i], L[j]) > 18   # šedé (sklo, kov), ne černá
                      and (max(L[i], L[j]) < 84 or min(L[i], L[j]) >= 84))                       # ani bílá (pruh, nárazník)
             if same:
                 pairs.append((de, i, j))
@@ -595,6 +595,30 @@ def _merge_shades(idx: np.ndarray, cent: np.ndarray, fg: np.ndarray, keep: float
 PHOTO_K = (0.7, 1.0, 3.0)                               # fotka: vyhlazení ploch, siluety, méně drobných tahů
 
 
+def _polygonize(lab: np.ndarray, k: int, eps: float, min_area: float) -> np.ndarray:
+    """Plochy jako mnohoúhelníky (rovné hrany). Kreslí se od největší, menší navrch; drobné se vynechají
+    a zůstane pod nimi okolní barva. Hodnoty < 0 v lab = mimo (nekreslí se)."""
+    import cv2
+    polys = []
+    for c in range(k):
+        m = (lab == c).astype(np.uint8)
+        if not m.any():
+            continue
+        cs, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        for cn in cs:
+            a = cv2.contourArea(cn)
+            if a >= min_area:
+                polys.append((a, c, cv2.approxPolyDP(cn, eps, True)))
+    out = np.full(lab.shape, -1, np.int32)
+    for _, c, pg in sorted(polys, key=lambda x: -x[0]):
+        cv2.fillPoly(out, [pg], int(c))
+    if (out < 0).any() and (out >= 0).any():           # škvíry mezi mnohoúhelníky: nejbližší plocha
+        from scipy import ndimage as ndi
+        _, (iy, ix) = ndi.distance_transform_edt(out < 0, return_indices=True)
+        out = out[iy, ix]
+    return np.maximum(out, 0)
+
+
 def _is_photo(rgba: np.ndarray) -> bool:
     """Fotka má tisíce odstínů, kreslený obrázek jen pár barev."""
     q = (_flatten(rgba)[rgba[..., 3] > 127] >> 3).astype(np.int32)
@@ -602,7 +626,7 @@ def _is_photo(rgba: np.ndarray) -> bool:
 
 
 def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bool = True, detail: int = 5,
-            smooth=None, line_mode=None, sens: float = 5, width: float = 3, shades: float = 0, wheels: bool = True) -> np.ndarray:
+            smooth=None, line_mode=None, sens: float = 5, width: float = 3, shades: float = 0, wheels: bool = True, straight: bool = True) -> np.ndarray:
     """Kroky: (1) kreslený styl AnimeGAN, (2) vyhlazení lesků (L0, síla 0–10), (3) barvy a dílky, (4) obrysy (žádné / z ploch / AI kresba)."""
     import cv2
     from scipy import ndimage as ndi
@@ -618,6 +642,7 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
     fg_full = rgba[..., 3] > 127
     rgb = _flatten(rgba)
     photo = _is_photo(rgba)
+    straight = straight and photo and not shades          # rovné hrany jen u aut (Obličej = 0), ne u lidí
     aiedge = ai_lines(rgb, 0.55 + 0.035 * float(np.clip(sens, 1, 10))) & fg_full if line_mode == "ai" else None
     faces = [] if not shades else [f for f in _faces(rgb) if fg_full[f[1]:f[1] + f[3], f[0]:f[0] + f[2]].mean() > 0.6]
     face_full = np.zeros((H, W), bool)
@@ -651,7 +676,7 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
     crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 40, 0.3)
     _, _, cent = cv2.kmeans(samp, k, None, crit, 4, cv2.KMEANS_PP_CENTERS)
     idx = ((lab[:, None, :] - cent[None]) ** 2).sum(-1).argmin(1).astype(np.int32).reshape(h, w)
-    idx, cent = _merge_shades(idx, cent, fg, float(np.clip(shades, 0, 10)))
+    idx, cent = _merge_shades(idx, cent, fg, float(np.clip(shades, 0, 10)), 8 if straight and photo else 14)
     idx = _majority(idx, k, 2)
     # dílky: malé plochy slučovat se sousedy, dokud jich nezbude cílový počet (posuvník Detail)
     target = 10 + 7 * d                                   # detail 1 -> ~17 ploch, 10 -> ~80
@@ -700,6 +725,50 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
         if r >= 2:
             sil = cv2.morphologyEx(sil, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1,) * 2))
         fgF = cv2.GaussianBlur(sil.astype(np.float32), (0, 0), max(1.0, 0.8 / s, SHAPE_K * simp)) > 0.5
+    segs = None
+    if straight and photo:                               # auta: rovné hrany, žádné klikyháky, texty a drobnosti pryč
+        eps = max(2.0, max(H, W) * (0.0025 + 0.0004 * (10 - d)))
+        fgF = _polygonize(fgF.astype(np.int32), 2, eps, H * W * 0.002) == 1
+        big = _polygonize(np.where(fgF, big, -1), k, eps, H * W * (0.0006 + 0.0002 * (10 - d)))
+        big[~fgF] = 0
+        out = pal[big]
+        segs = None                                      # z AI kresby jen dlouhé rovné úsečky (obrys nádrže, dveře, rolety)
+        if aiedge is not None:
+            ls = cv2.HoughLinesP((aiedge & fgF).astype(np.uint8) * 255, 1, np.pi / 180, 60,
+                                 minLineLength=max(H, W) * (0.05 + 0.008 * (10 - d)), maxLineGap=max(H, W) * 0.01)
+            if ls is not None:
+                segs = np.zeros((H, W), np.uint8)
+                near = np.zeros((H, W), np.uint8)
+                bnd = np.zeros((H, W), bool)
+                bnd[:, 1:] |= big[:, 1:] != big[:, :-1]
+                bnd[1:, :] |= big[1:, :] != big[:-1, :]
+                bnd = (cv2.dilate((bnd | ~fgF).astype(np.uint8), np.ones((3, 3), np.uint8)) > 0)
+                light = pal[big].mean(-1) > 200
+                gap = max(4, int(max(H, W) * 0.008))
+                ker = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * gap + 1,) * 2)
+                inner = cv2.erode(fgF.astype(np.uint8), ker)            # u obrysu kreslí silueta
+                for x0, y0, x1, y1 in sorted(ls[:, 0].tolist(), key=lambda q: -math.hypot(q[2] - q[0], q[3] - q[1])):
+                    L_ = math.hypot(x1 - x0, y1 - y0)
+                    ux, uy = (x1 - x0) / L_, (y1 - y0) / L_
+                    def reach(x, y, sx, sy):                            # protáhnout až k hraně plochy (max o polovinu)
+                        for k_ in range(int(L_ * 0.5)):
+                            xx_, yy_ = int(round(x + sx * k_)), int(round(y + sy * k_))
+                            if not (0 <= xx_ < W and 0 <= yy_ < H) or bnd[yy_, xx_]:
+                                return xx_, yy_
+                        return int(x), int(y)
+                    x0, y0 = reach(x0, y0, -ux, -uy)
+                    x1, y1 = reach(x1, y1, ux, uy)
+                    one = np.zeros((H, W), np.uint8)
+                    cv2.line(one, (x0, y0), (x1, y1), 1, 1)
+                    if light[one > 0].mean() > 0.6:
+                        continue                                        # v bílém pruhu = zbytek nápisu
+                    n1 = int(one.sum())
+                    if n1 == 0 or (one & near).sum() > 0.5 * n1 or (one & inner).sum() < 0.7 * n1:
+                        continue                                        # zdvojená rovnoběžka nebo obrys
+                    segs |= one
+                    near |= cv2.dilate(one, ker)
+                segs = segs > 0
+        aiedge = None                                    # čáry jen po hranicích ploch
     if lines:
         # tmavé tahy z kresby (oči, obočí, ústa): tmavší než okolí, tenké, ne drobné tečky
         g = cv2.cvtColor(small, cv2.COLOR_RGB2GRAY).astype(np.float32)
@@ -720,8 +789,10 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
         fe[1:, :] |= fgF[1:, :] != fgF[:-1, :]
         edge = fe if aiedge is not None else (edge & fgF) | fe   # s AI kresbou jen její čáry (hranice ploch od lesků ne)
         edge = cv2.dilate(edge.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (t, t))) > 0
-        if aiedge is None:
+        if aiedge is None and not (straight and photo):
             edge |= dark & fgF
+        if straight and photo and segs is not None:
+            edge |= cv2.dilate(segs.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (t, t))) > 0
         if aiedge is not None:                           # AI kresba: detaily (naviják, mřížka, oči) jako čáry
             ae = cv2.morphologyEx(aiedge.astype(np.uint8), cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))   # spojit přerušované tahy
             if photo:                                    # obrys kreslí silueta; AI čáru těsně u něj pryč, ať se od něj drobky odpojí
@@ -856,7 +927,7 @@ def run(op: str, png: bytes, p: dict) -> bytes:
     elif op == "cartoon":
         res = cartoon(img, p.get("style", "portret"), int(p.get("colors", 8)), bool(p.get("lines", True)), int(p.get("detail", 5)),
                       p.get("smooth"), p.get("lineMode"), float(p.get("sens", 5)), float(p.get("width", 3)),
-                      float(p.get("shades", 0)), bool(p.get("wheels", True)))
+                      float(p.get("shades", 0)), bool(p.get("wheels", True)), bool(p.get("straight", True)))
     else:
         raise ValueError("Neznámá AI funkce.")
     return encode(res)
