@@ -592,8 +592,17 @@ def _merge_shades(idx: np.ndarray, cent: np.ndarray, fg: np.ndarray, keep: float
     return root[idx].astype(np.int32), cent
 
 
+PHOTO_K = (0.7, 1.0, 3.0)                               # fotka: vyhlazení ploch, siluety, méně drobných tahů
+
+
+def _is_photo(rgba: np.ndarray) -> bool:
+    """Fotka má tisíce odstínů, kreslený obrázek jen pár barev."""
+    q = (_flatten(rgba)[rgba[..., 3] > 127] >> 3).astype(np.int32)
+    return len(q) > 0 and len(np.unique(q[:, 0] * 1024 + q[:, 1] * 32 + q[:, 2])) > 2500
+
+
 def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bool = True, detail: int = 5,
-            smooth=None, line_mode=None, sens: float = 5, width: float = 3, shades: float = 0) -> np.ndarray:
+            smooth=None, line_mode=None, sens: float = 5, width: float = 3, shades: float = 0, wheels: bool = True) -> np.ndarray:
     """Kroky: (1) kreslený styl AnimeGAN, (2) vyhlazení lesků (L0, síla 0–10), (3) barvy a dílky, (4) obrysy (žádné / z ploch / AI kresba)."""
     import cv2
     from scipy import ndimage as ndi
@@ -608,6 +617,7 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
     d = int(np.clip(detail, 1, 10))
     fg_full = rgba[..., 3] > 127
     rgb = _flatten(rgba)
+    photo = _is_photo(rgba)
     aiedge = ai_lines(rgb, 0.55 + 0.035 * float(np.clip(sens, 1, 10))) & fg_full if line_mode == "ai" else None
     faces = [] if not shades else [f for f in _faces(rgb) if fg_full[f[1]:f[1] + f[3], f[0]:f[0] + f[2]].mean() > 0.6]
     face_full = np.zeros((H, W), bool)
@@ -645,7 +655,7 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
     idx = _majority(idx, k, 2)
     # dílky: malé plochy slučovat se sousedy, dokud jich nezbude cílový počet (posuvník Detail)
     target = 10 + 7 * d                                   # detail 1 -> ~17 ploch, 10 -> ~80
-    min_area = max(12, int(h * w * 0.0004))
+    min_area = max(12, int(h * w * (0.0004 + (0.0003 * (10 - d) if photo else 0))))   # fotka: drobky (světla, šrouby) pryč
     for _ in range(14):
         comps = []
         bad = np.zeros((h, w), bool)
@@ -668,7 +678,9 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
             break
         min_area = int(min_area * 1.6)
     # zpět na plné rozlišení s hladkými hranicemi (každá barva rozmazaná, vyhrává nejsilnější)
-    sig = max(1.0, 1.2 / s)
+    SHAPE_K, SIL_K, LINE_K = PHOTO_K if photo else (0.0, 0.0, 1.0)   # kreslené beze změny (Tomovo zelené oko)
+    simp = (10 - d) * max(H, W) / 1000                  # zjednodušení tvarů: nízký Detail = hladší, oblejší plochy
+    sig = max(1.0, 1.2 / s, SHAPE_K * simp)
     best = np.full((H, W), -1.0, np.float32)
     big = np.zeros((H, W), np.int32)
     for c in range(k):
@@ -683,7 +695,11 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
     out = pal[big]
     fgF = fg_full if not fg_full.all() else np.ones((H, W), bool)
     if not fg_full.all():                                # hladký obrys postavy
-        fgF = cv2.GaussianBlur(fg_full.astype(np.float32), (0, 0), max(1.0, 0.8 / s)) > 0.5
+        r = int(SIL_K * simp)                             # silueta: pryč tenké výběžky (tráva, stín pod autem, anténky)
+        sil = fg_full.astype(np.uint8)
+        if r >= 2:
+            sil = cv2.morphologyEx(sil, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1,) * 2))
+        fgF = cv2.GaussianBlur(sil.astype(np.float32), (0, 0), max(1.0, 0.8 / s, SHAPE_K * simp)) > 0.5
     if lines:
         # tmavé tahy z kresby (oči, obočí, ústa): tmavší než okolí, tenké, ne drobné tečky
         g = cv2.cvtColor(small, cv2.COLOR_RGB2GRAY).astype(np.float32)
@@ -708,9 +724,17 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
             edge |= dark & fgF
         if aiedge is not None:                           # AI kresba: detaily (naviják, mřížka, oči) jako čáry
             ae = cv2.morphologyEx(aiedge.astype(np.uint8), cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))   # spojit přerušované tahy
+            if photo:                                    # obrys kreslí silueta; AI čáru těsně u něj pryč, ať se od něj drobky odpojí
+                ae &= cv2.erode(fgF.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * (t + 3) + 1,) * 2))
             n, cc, st, _ = cv2.connectedComponentsWithStats(ae, connectivity=8)
             keep = np.zeros(n, bool)
-            keep[1:] = st[1:, cv2.CC_STAT_AREA] >= max(15, H * W * 0.000012 * (11 - d))
+            amin = max(15, H * W * 0.000012 * LINE_K * (11 - d))
+            keep[1:] = st[1:, cv2.CC_STAT_AREA] >= amin
+            if photo:                                    # u obrysu drobky (světla na střeše, kliky) přísněji, obrys kreslí silueta
+                band = int(1.5 * simp) + t
+                near = ~(cv2.erode(fgF.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * band + 1,) * 2)) > 0)
+                hit = np.bincount(cc[near & (cc > 0)], minlength=n)
+                keep &= ~((hit > 0) & (st[:, cv2.CC_STAT_AREA] < 5 * amin))
             ae = cv2.dilate(keep[cc].astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (max(2, t - 1),) * 2)) > 0
             edge |= ae & fgF
         # drobné plošky uzavřené linkami zalít linkou (jinak z nich jsou mini dílky)
@@ -720,6 +744,19 @@ def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bo
         edge |= tiny[cc] & ~face_full                     # v obličeji ne: bělmo a duhovka by zčernaly
         out[edge] = (22, 20, 24)
         fgF = fgF | edge
+    if wheels and photo:                       # auta z fotky: kola jako čisté kruhy (pneu, disk, náboj)
+        ws = detect_wheels(rgba)
+        if ws:
+            rm = float(np.median([c[2] for c in ws]))
+            yy, xx = np.ogrid[:H, :W]
+            lt = max(2, round(max(H, W) / 420 * float(np.clip(width, 1, 5)) / 3))
+            for cx, cy, r in ws:
+                r = rm if abs(r - rm) < 0.25 * rm else r
+                dd = np.hypot(xx - cx, yy - cy)
+                for rr, col in ((r + lt, (22, 20, 24)), (r, (70, 70, 74)), (0.5 * r + lt, (22, 20, 24)), (0.5 * r, (190, 192, 196)),
+                                (0.2 * r + lt, (22, 20, 24)), (0.2 * r, (70, 70, 74))):
+                    out[dd <= rr] = col
+                fgF = fgF | (dd <= r + lt)
     # odtržené drobky mimo postavu (zbytky pozadí) pryč
     n, cc, st, _ = cv2.connectedComponentsWithStats(fgF.astype(np.uint8), connectivity=8)
     if n > 2:
@@ -819,7 +856,7 @@ def run(op: str, png: bytes, p: dict) -> bytes:
     elif op == "cartoon":
         res = cartoon(img, p.get("style", "portret"), int(p.get("colors", 8)), bool(p.get("lines", True)), int(p.get("detail", 5)),
                       p.get("smooth"), p.get("lineMode"), float(p.get("sens", 5)), float(p.get("width", 3)),
-                      float(p.get("shades", 0)))
+                      float(p.get("shades", 0)), bool(p.get("wheels", True)))
     else:
         raise ValueError("Neznámá AI funkce.")
     return encode(res)
