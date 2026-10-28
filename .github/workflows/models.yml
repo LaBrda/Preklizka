@@ -40,4 +40,4 @@ jobs:
           body: |
             Modely, které si appka sama stáhne při prvním použití AI funkce. Ručně je stahovat netřeba.
             Zdroje: Real-ESRGAN (xinntao), AnimeGANv2 (bryandlee/animegan2-pytorch), IS-Net a SAM (rembg), TripoSR,
-          DreamShaper 8 (Lykon, creativeml-openrail-m) a ControlNet lineart (lllyasviel, creativeml-openrail-m).
+            DreamShaper 8 (Lykon, creativeml-openrail-m) a ControlNet lineart (lllyasviel, creativeml-openrail-m).
