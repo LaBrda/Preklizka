@@ -192,7 +192,9 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
           <div class="f"><label for="cfRatio">Nový obrázek</label><div class="in"><select id="cfRatio"><option>na šířku</option><option>čtverec</option><option>na výšku</option></select></div></div>
         </div>
         <p class="hint" id="cfRun" hidden style="color:var(--cyan)"></p>
-        <textarea id="cfText" rows="2" style="width:100%;margin-top:6px" placeholder="Co je na fotce (anglicky funguje nejlíp), např. yellow wheeled excavator, dark grey arm with bucket, dozer blade"></textarea>
+        <textarea id="cfText" rows="2" style="width:100%;margin-top:6px" placeholder="Co je na obrázku, třeba žlutý kolový bagr, tmavé rameno se lžící, radlice"></textarea>
+        <label class="check"><input type="checkbox" id="cfCz" checked> Píšu česky (přeložit do angličtiny)</label>
+        <p class="hint" id="cfEn" hidden></p>
         <div class="dl">
           <button class="btn primary aib" id="cfDraw" type="button">Překreslit obrázek</button>
           <button class="btn aib" id="cfSketch" type="button" title="Nový kreslený obrázek podle popisu, fotka jen volně vede polohu">Nakreslit podle popisu</button>
@@ -1004,6 +1006,19 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     clearTimeout(cfTimer);
     if (st.state === "installing" || tr.state === "training") cfTimer = setTimeout(cfRefresh, 2000);
   }
+  async function cfGo(params, what, label, done, base) {   // česky psané zadání nejdřív přeložit (modely umí jen anglicky)
+    if ($("cfCz").checked && (params.prompt || "").trim()) {
+      $("cfRun").hidden = false; $("cfRun").textContent = "Překládám zadání do angličtiny…";
+      try {
+        const r = await fetch("api/kresba/translate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: params.prompt }) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.detail || r.status);
+        params = Object.assign({}, params, { prompt: j.en });
+        $("cfEn").hidden = false; $("cfEn").textContent = "AI dostane: " + j.en;
+      } catch (e) { $("cfRun").textContent = "Chyba překladu: " + e.message; return; }
+    }
+    return aiDo("kresba", params, what, label, done, base);
+  }
   $("cfInstall").onclick = async () => { await fetch("api/kresba/install", { method: "POST" }); cfRefresh(); };
   $("cfStr").oninput = () => ($("cfStrV").textContent = $("cfStr").value);
   const cfParams = (mode) => ({ mode, prompt: $("cfText").value, strength: +$("cfStr").value, ratio: $("cfRatio").value, sens: +$("aiSens").value, seed: +$("cfSeed").value || 7, lora: $("cfLora").value, model: $("cfModel").value, style: $("cfStyle").value });
@@ -1025,9 +1040,9 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   };
   $("cfInpaint").onclick = () => {
     if (!aiBase || (!aiPts.length && !aiBox)) { $("cfRun").hidden = false; $("cfRun").textContent = "Nejdřív tlačítkem Označit část označ, co chceš překreslit."; return; }
-    if (!$("cfText").value.trim()) { $("cfRun").hidden = false; $("cfRun").textContent = "Napiš do pole, co s označenou částí (anglicky), např. red cab."; return; }
+    if (!$("cfText").value.trim()) { $("cfRun").hidden = false; $("cfRun").textContent = "Napiš do pole, co s označenou částí, např. červená kabina."; return; }
     if (selPaint) { setAiSel(false); selPaint = false; $("cfMark").classList.remove("primary"); $("cfMark").textContent = "Označit část"; }
-    aiDo("kresba", Object.assign(cfParams("inpaint"), { points: aiPts, box: aiBox }), "AI překresluje vybranou část", "upraveno", "Hotovo, zbytek obrázku zůstal beze změny.", aiBase);
+    cfGo(Object.assign(cfParams("inpaint"), { points: aiPts, box: aiBox }), "AI překresluje vybranou část", "upraveno", "Hotovo, zbytek obrázku zůstal beze změny.", aiBase);
   };
   $("ltGo").onclick = async () => {
     const files = [...$("ltFiles").files];
@@ -1039,11 +1054,11 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     if (!r.ok) { const j = await r.json().catch(() => ({})); $("ltSt").textContent = j.detail || "Nepovedlo se spustit trénink."; return; }
     cfRefresh();
   };
-  $("cfSketch").onclick = () => { if (!$("cfText").value.trim()) { $("msg").textContent = "Napiš do pole, co je na fotce (anglicky), např. yellow wheeled excavator with dozer blade."; return; }
-    aiDo("kresba", cfParams("sketch"), "AI kreslí obrázek podle popisu", "nakresleno", "Hotovo. Pozadí odstraníš tlačítkem Pozadí pryč (kreslený), pak vrstvy."); };
-  $("cfDraw").onclick = () => aiDo("kresba", cfParams("draw"), "AI překresluje obrázek", "překresleno", "Hotovo. Teď rovnou vrstvy, případně Úpravy obrázku.");
+  $("cfSketch").onclick = () => { if (!$("cfText").value.trim()) { $("msg").textContent = "Napiš do pole, co je na fotce, např. žlutý kolový bagr s radlicí."; return; }
+    cfGo(cfParams("sketch"), "AI kreslí obrázek podle popisu", "nakresleno", "Hotovo. Pozadí odstraníš tlačítkem Pozadí pryč (kreslený), pak vrstvy."); };
+  $("cfDraw").onclick = () => cfGo(cfParams("draw"), "AI překresluje obrázek", "překresleno", "Hotovo. Teď rovnou vrstvy, případně Úpravy obrázku.");
   $("cfNew").onclick = () => { if (!$("cfText").value.trim()) { $("msg").textContent = "Napiš do pole, co má být na obrázku."; return; }
-    aiDo("kresba", cfParams("new"), "AI kreslí nový obrázek", "nový obrázek", "Hotovo. Pozadí odstraníš tlačítkem Pozadí pryč (kreslený).", src || { w: 8, h: 8, data: new Uint8ClampedArray(256) }); };
+    cfGo(cfParams("new"), "AI kreslí nový obrázek", "nový obrázek", "Hotovo. Pozadí odstraníš tlačítkem Pozadí pryč (kreslený).", src || { w: 8, h: 8, data: new Uint8ClampedArray(256) }); };
   $("aiBgA").addEventListener("click", () => aiDo("bg", { kind: "anime" }, "Odstraňuji pozadí", "bez pozadí", "Pozadí odstraněno."));
   $("aiBgP").addEventListener("click", () => aiDo("bg", { kind: "photo" }, "Odstraňuji pozadí", "bez pozadí", "Pozadí odstraněno. U fotky teď klikni na Použít v Úpravách obrázku: sjednotí odstíny a lesky, jinak je z každého odstínu jiný flek."));
   $("aiUp").addEventListener("click", () => aiDo("upscale", { quality: "auto" }, "Zvětšuji a čistím obrázek", "zvětšeno", "Obrázek zvětšen 4× a vyčištěn."));

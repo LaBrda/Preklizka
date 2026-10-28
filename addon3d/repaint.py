@@ -36,6 +36,8 @@ FILES = {
         "scheduler/scheduler_config.json", "tokenizer/merges.txt", "tokenizer/vocab.json", "tokenizer/special_tokens_map.json",
         "tokenizer/tokenizer_config.json", "tokenizer_2/merges.txt", "tokenizer_2/vocab.json", "tokenizer_2/special_tokens_map.json",
         "tokenizer_2/tokenizer_config.json")},
+    **{"mt/" + k: "mt-csen-" + k for k in (
+        "config.json", "generation_config.json", "pytorch_model.bin", "source.spm", "target.spm", "vocab.json", "tokenizer_config.json")},
     "cn/config.json": "cn-lineart-config.json",
     "cn/diffusion_pytorch_model.fp16.safetensors": "cn-lineart.fp16.safetensors",
 }

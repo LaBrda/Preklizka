@@ -4,7 +4,7 @@ name: AI kreslíř (test instalace)
 on:
   push:
     branches: [main]
-    paths: [app/addon3d.py, addon3d/repaint.py, addon3d/train_lora.py, .github/workflows/kresba.yml]
+    paths: [app/addon3d.py, addon3d/repaint.py, addon3d/train_lora.py, addon3d/translate.py, .github/workflows/kresba.yml]
   workflow_dispatch:
 
 jobs:
@@ -46,6 +46,8 @@ jobs:
                   o = Image.open(io.BytesIO(out)); px = list(o.convert("RGB").resize((8, 8)).getdata())
                   msg = f"{mode}: {o.size} za {round(time.time() - t)} s, barvy {px[27]} {px[36]}"
                   print("::notice title=Kreslíř::" + msg)
+              en = addon3d.translate("žlutý kolový bagr, orel, červená kabina")
+              print("::notice title=Překlad::" + en)
               # překreslení vybrané části (maska jako PNG)
               mk = Image.new("RGB", (320, 192), "black"); ImageDraw.Draw(mk).rectangle((30, 60, 160, 140), fill="white")
               b3 = io.BytesIO(); mk.save(b3, "PNG")

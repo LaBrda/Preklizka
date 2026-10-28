@@ -23,7 +23,7 @@ LIBS = ["numpy<2", "omegaconf==2.3.0", "einops==0.7.0", "transformers==4.35.0", 
 # AI kreslíř: vlastní složka knihoven (3D potřebuje staré transformers, kreslíř nové); Python a PyTorch sdílí
 LIBS_K = ["diffusers==0.30.3", "transformers==4.44.2", "huggingface-hub==0.24.6", "safetensors==0.4.5",
           "tokenizers==0.19.1", "numpy<2", "Pillow==10.4.0"]
-LIBS_K2 = ["peft==0.12.0", "accelerate==0.33.0", "psutil", "pyyaml"]   # LoRA; bez závislostí (jinak by táhly další PyTorch)
+LIBS_K2 = ["peft==0.12.0", "accelerate==0.33.0", "psutil", "pyyaml", "sentencepiece==0.2.0"]   # LoRA; bez závislostí (jinak by táhly další PyTorch)
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 _st = {"state": "none", "step": "", "log": "", "gpu": None}
@@ -196,6 +196,7 @@ def kresba_installed() -> bool:
     import re
     m = re.search(r'^FILES = \{(.*?)^\}', (src_dir() / "repaint.py").read_text(encoding="utf-8"), re.S | re.M)
     names = re.findall(r'"(sd/[^"]+|sdi/[^"]+|cn/[^"]+)"', m.group(1)) if m else []
+    names += ["mt/pytorch_model.bin"]
     d = base_dir() / "kresba_model"
     return all((d / n).exists() for n in names) and (d / "sdxl" / "model_index.json").exists()
 
@@ -238,8 +239,10 @@ def _install_k() -> None:
 
 
 def _libs_k2() -> None:
-    if not (base_dir() / "kresba_libs" / "peft").exists():
-        _run(_pip() + ["--target", str(base_dir() / "kresba_libs"), "--upgrade", "--no-deps"] + LIBS_K2, "Instaluji knihovny pro postavy")
+    mark = base_dir() / "kresba_libs" / ("libs2-" + str(len(LIBS_K2)) + ".txt")
+    if not mark.exists():
+        _run(_pip() + ["--target", str(base_dir() / "kresba_libs"), "--upgrade", "--no-deps"] + LIBS_K2, "Instaluji knihovny pro postavy a překlad")
+        mark.write_text("ok")
 
 
 def own_dir() -> Path:
@@ -339,6 +342,27 @@ def start_install_k() -> dict:
         _stk.update(state="installing", step="Začínám…", log="")
         threading.Thread(target=_install_k, daemon=True).start()
     return kresba_status()
+
+
+def translate(text: str) -> str:
+    """Zadání česky -> anglicky (modely kreslíře rozumí jen anglicky)."""
+    import json
+    if not kresba_installed():
+        raise RuntimeError("AI kreslíř není nainstalovaný.")
+    _libs_k2()
+    app = base_dir() / "app"
+    if not (app / "translate.py").exists() or (src_dir() / "translate.py").read_bytes() != (app / "translate.py").read_bytes():
+        _copy_app()
+    with tempfile.TemporaryDirectory() as td:
+        f = Path(td) / "text.txt"
+        f.write_text(text, encoding="utf-8")
+        r = subprocess.run([str(python()), "-E", "-X", "utf8", str(app / "translate.py"), str(f)], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", env=_env_k(), timeout=300, creationflags=NO_WINDOW)
+        for line in r.stdout.splitlines():
+            if line.startswith("PREKLAD "):
+                return json.loads(line[8:])["en"]
+        tail = (r.stdout + "\n" + r.stderr).strip().splitlines()[-4:]
+        raise RuntimeError("Překlad selhal: " + " | ".join(tail))
 
 
 def run_kresba(job: dict, img_png: bytes | None, ctrl_png: bytes | None) -> bytes:

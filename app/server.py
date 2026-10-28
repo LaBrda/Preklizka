@@ -194,6 +194,22 @@ def kresba_status():
     return dict(addon3d.kresba_status(), loras=addon3d.loras(), train=addon3d.train_status(), models=addon3d.own_models())
 
 
+class TextIn(BaseModel):
+    text: str
+
+
+@app.post("/api/kresba/translate")
+def kresba_translate(inp: TextIn):
+    """Zadání česky -> anglicky."""
+    import addon3d
+    if not DESKTOP and not os.environ.get("PREKLIZKA_3D_TEST"):
+        raise HTTPException(404, "Jen v Preklizka.exe.")
+    try:
+        return {"en": addon3d.translate(inp.text)}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
 class ModelIn(BaseModel):
     path: str
 
