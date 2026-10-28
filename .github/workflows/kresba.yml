@@ -1,4 +1,5 @@
 name: AI kreslíř (test instalace)
+# spouští se při změně doplňku kreslíře
 
 on:
   push:
