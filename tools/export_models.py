@@ -38,13 +38,40 @@ MIRROR = {
     "triposr-config.yaml": "https://huggingface.co/stabilityai/TripoSR/resolve/main/config.yaml",
     "dino-vitb16-config.json": "https://huggingface.co/facebook/dino-vitb16/resolve/main/config.json",
 }
+# AI překreslení do kreslené podoby (doplněk v exe): DreamShaper 8 + ControlNet lineart (creativeml-openrail-m)
+DS = "https://huggingface.co/Lykon/dreamshaper-8/resolve/main/"
+CN = "https://huggingface.co/lllyasviel/control_v11p_sd15_lineart/resolve/"
+MIRROR.update({
+    "ds8-model_index.json": DS + "model_index.json",
+    "ds8-unet-config.json": DS + "unet/config.json",
+    "ds8-unet.fp16.safetensors": DS + "unet/diffusion_pytorch_model.fp16.safetensors",
+    "ds8-te-config.json": DS + "text_encoder/config.json",
+    "ds8-te.fp16.safetensors": DS + "text_encoder/model.fp16.safetensors",
+    "ds8-vae-config.json": DS + "vae/config.json",
+    "ds8-vae.fp16.safetensors": DS + "vae/diffusion_pytorch_model.fp16.safetensors",
+    "ds8-scheduler-config.json": DS + "scheduler/scheduler_config.json",
+    "ds8-tok-merges.txt": DS + "tokenizer/merges.txt",
+    "ds8-tok-vocab.json": DS + "tokenizer/vocab.json",
+    "ds8-tok-special.json": DS + "tokenizer/special_tokens_map.json",
+    "ds8-tok-config.json": DS + "tokenizer/tokenizer_config.json",
+    "cn-lineart-config.json": [CN + "main/config.json", CN + "refs%2Fpr%2F3/config.json"],
+    "cn-lineart.fp16.safetensors": [CN + "main/diffusion_pytorch_model.fp16.safetensors",
+                                    CN + "refs%2Fpr%2F3/diffusion_pytorch_model.fp16.safetensors"],
+})
 
 
 def get(name, url, folder):
     p = os.path.join(folder, name)
     if not os.path.exists(p):
-        print("stahuji", url)
-        urllib.request.urlretrieve(url, p)
+        for u in ([url] if isinstance(url, str) else url):   # víc adres: první, která funguje
+            try:
+                print("stahuji", u)
+                urllib.request.urlretrieve(u, p)
+                break
+            except Exception as e:                          # noqa: BLE001
+                print("  nejde:", e)
+        else:
+            raise RuntimeError("nepodařilo se stáhnout " + name)
     return p
 
 
