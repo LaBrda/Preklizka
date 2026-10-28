@@ -560,6 +560,8 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
         mark = contours(M[1], scale) if k == 0 else (contours(pieces[k + 1], scale) if k + 1 < NL and pieces[k + 1] is not None else [])
         sheets.append({"label": labels[k], "cut": cut, "mark": mark, "paint": paint_groups[k]})
         cut_px.append(cut)
+    if opt.get("tab"):                                   # poutko na pověšení: ouško s dírkou nahoře na desce
+        sheets[0]["cut"] = tab_board(wmm, hmm, float(opt.get("chamfer", 4)))
     svg = combined_svg(wmm, hmm, sheets)
     plan = plan_svg(wmm, hmm, sheets, plan_fills, cent, NL)
 
@@ -601,6 +603,19 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
         "stats": {"wmm": float(wmm), "hmm": float(hmm), "silParts": int(sil_parts), "holes": int(holes_n), "pieces": int(n_pieces),
                   "layers": int(NL), "bridges": int(n_bridges), "frameJoined": bool(joined), "engine": "server", "upscale": round(float(U), 1)},
     }
+
+
+TAB_R, TAB_NECK, TAB_HOLE = 10.0, 4.0, 2.5             # poutko: poloměr ouška, krček, poloměr dírky (mm)
+
+
+def tab_board(wmm, hmm, ch):
+    """Obrys desky se seříznutými rohy a ouškem nahoře uprostřed (y < 0 = nad deskou) + dírka."""
+    cx, R, e = wmm / 2, TAB_R, TAB_NECK
+    arc = [(cx - R * math.cos(t), -e - R * math.sin(t)) for t in np.linspace(0, math.pi, 25)]
+    pts = [(ch, 0), (cx - R, 0)] + arc + [(cx + R, 0), (wmm - ch, 0), (wmm, ch), (wmm, hmm - ch), (wmm - ch, hmm),
+                                          (ch, hmm), (0, hmm - ch), (0, ch)]
+    hole = [(cx + TAB_HOLE * math.cos(t), -e + TAB_HOLE * math.sin(t)) for t in np.linspace(0, 2 * math.pi, 24, endpoint=False)]
+    return [np.array(pts, float), np.array(hole, float)]
 
 
 def plan_svg(wmm, hmm, sheets, fills, cent, NL):
@@ -657,7 +672,8 @@ def plan_svg(wmm, hmm, sheets, fills, cent, NL):
 
 
 def combined_svg(wmm, hmm, sheets):
-    gap, lab, cols = 10.0, 14.0, 2
+    tab = any((p[:, 1] < -0.5).any() for p in sheets[0]["cut"]) if sheets and sheets[0]["cut"] else False
+    gap, lab, cols = 10.0, 14.0 + (TAB_R + TAB_NECK if tab else 0), 2
     rows = math.ceil(len(sheets) / cols)
     W = cols * wmm + (cols - 1) * gap
     H = rows * (hmm + lab) + (rows - 1) * gap

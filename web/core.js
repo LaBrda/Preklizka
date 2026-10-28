@@ -459,10 +459,18 @@
     if (engr && engr.length) s += engravePath(engr, mm, 0, 0);
     return s + "</svg>\n";
   }
+  const TAB_R = 10, TAB_NECK = 4, TAB_HOLE = 2.5;       // poutko: poloměr ouška, krček, poloměr dírky (mm)
+  function tabBoard(wmm, hmm, ch) {                     // obrys desky s ouškem nahoře uprostřed (y < 0) + dírka, v mm
+    const cx = wmm / 2, R = TAB_R, e = TAB_NECK, arc = [], hole = [];
+    for (let i = 0; i <= 24; i++) { const t = (Math.PI * i) / 24; arc.push([cx - R * Math.cos(t), -e - R * Math.sin(t)]); }
+    for (let i = 0; i < 24; i++) { const t = (2 * Math.PI * i) / 24; hole.push([cx + TAB_HOLE * Math.cos(t), -e + TAB_HOLE * Math.sin(t)]); }
+    return [[[ch, 0], [cx - R, 0], ...arc, [cx + R, 0], [wmm - ch, 0], [wmm, ch], [wmm, hmm - ch], [wmm - ch, hmm], [ch, hmm], [0, hmm - ch], [0, ch]], hole];
+  }
   // všechny listy do jednoho SVG: mřížka po dvou, nad každým listem červený popisek
   function combined(wmm, hmm, mm, sheets) {
     const d = (polys, ox, oy) => polys.map((p) => closedD(p, mm, ox, oy)).join(" ");
-    const gap = 10, lab = 14, cols = 2, rows = Math.ceil(sheets.length / cols);
+    const tab = sheets.length && sheets[0].cut.some((p) => p.some((q) => q[1] < -0.5 / mm));
+    const gap = 10, lab = 14 + (tab ? TAB_R + TAB_NECK : 0), cols = 2, rows = Math.ceil(sheets.length / cols);
     const W = cols * wmm + (cols - 1) * gap, H = rows * (hmm + lab) + (rows - 1) * gap;
     let s = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${W.toFixed(2)}mm" height="${H.toFixed(2)}mm" viewBox="0 0 ${W.toFixed(3)} ${H.toFixed(3)}"><title>vrstvy pro laser</title>\n`;
     sheets.forEach((sh, i) => {
@@ -1044,6 +1052,7 @@
       const label = k === 0 ? "1 Deska - natřít černě" : k === NL - 1 ? `${k + 1} Čisté dřevo` : `${k + 1} Barvy - natřít podle náhledu`;
       return { label: k === NL - 1 && hasEngrave ? label + " + gravírovat fialové" : label, cut: k === 0 ? cM[0] : cont(or(ringR, m)), mark, paint: paintInfo[k] ? paintInfo[k].groups : [], engrave: k === NL - 1 && hasEngrave ? cont(and(engrave, m)) : [] };
     });
+    if (opt.tab) sheets[0].cut = tabBoard(wmm, hmm, opt.chamfer || 0).map((p) => p.map(([x, y]) => [x / mm, y / mm]));   // poutko na pověšení
     const files = sheets.map((sh) => ({ svg: svg(wmm, hmm, mm, sh.cut, sh.mark, "vrstva " + sh.label, sh.paint, sh.engrave) }));
     const plan = planSvg(wmm, hmm, mm, sheets, paintInfo, cent, NL);
     const all = combined(wmm, hmm, mm, sheets);

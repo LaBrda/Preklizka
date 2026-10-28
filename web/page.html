@@ -231,6 +231,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
         <div class="f"><label for="struts">Spojky k rámečku</label><div class="in"><select id="struts"><option value="0" selected>žádné</option><option value="1">1 (vlevo)</option><option value="2">2 (vlevo, vpravo)</option><option value="3">3 (+ dole)</option><option value="4">4 (všechny strany)</option></select></div></div>
         <div class="f"><label for="strutWidth">Šířka spojky</label><div class="in"><input id="strutWidth" type="number" min="1" max="30" step="0.5" value="4"><span class="u">mm</span></div></div>
         <div class="f"><label for="chamfer">Seříznutí rohů</label><div class="in"><input id="chamfer" type="number" min="0" max="50" step="1" value="4"><span class="u">mm</span></div></div>
+        <label class="check"><input type="checkbox" id="tab"> Poutko na pověšení (ouško s dírkou nahoře na 1. vrstvě)</label>
       </div>
     </div>
 
@@ -248,6 +249,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       <label class="check"><input type="checkbox" id="engrave"> Gravírovat černé detaily na dřevě</label>
       <label class="check"><input type="checkbox" id="bridges" checked> Spojit ostrůvky linkou (nic se nelepí)</label>
       <label class="check"><input type="checkbox" id="dropThin"> Vynechat tenké linky (vousky, chloupky)</label>
+      <button class="btn" id="resetAll" type="button" style="margin-top:8px">Výchozí nastavení</button>
       <p class="hint">„Vyhlazení“ zaoblí schodky po pixelech a v SVG udělá z řezů hladké křivky. Vyšší číslo je hladší, ale ztrácí drobné detaily. „Gravírovat černé detaily“ vypálí černou kresbu, která leží na dřevě (zorničky, čenich, obrys rukavic), aby se neztratila. V SVG je fialová výplň. „Linka mezi barvami“ je dřevěné ohraničení každé barevné plochy, i tam, kde v obrázku černá čára není. „Okraj postavy“ je dřevěný pás kolem celé siluety. Drží postavu pohromadě a odděluje ji od černého pozadí. „Černá skrz od“ určuje, jak široká černá plocha uvnitř okraje se vyřízne až na desku. Užší černé linky zůstanou obrysem z dřeva.</p>
     </div>
   </aside>
@@ -345,7 +347,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   function opts() {
     const n = (id) => parseFloat($(id).value);
     return { layers: NL(), width: n("width"), frame: n("frame"), gap: n("gap"), chamfer: n("chamfer"), hole: n("hole"), rim: n("rim"), struts: +$("struts").value, strutWidth: n("strutWidth"), sepLine: n("sepLine"),
-      minFeature: n("minFeature"), minPiece: n("minPiece"), dropThin: $("dropThin").checked, bridges: $("bridges").checked, engrave: $("engrave").checked, smooth: +$("smooth").value, maskSmooth: 0.25 + 0.08 * +$("smooth").value };
+      minFeature: n("minFeature"), minPiece: n("minPiece"), dropThin: $("dropThin").checked, tab: $("tab").checked, bridges: $("bridges").checked, engrave: $("engrave").checked, smooth: +$("smooth").value, maskSmooth: 0.25 + 0.08 * +$("smooth").value };
   }
   const hex = (c) => "#" + c.map((v) => v.toString(16).padStart(2, "0")).join("");
 
@@ -860,6 +862,18 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     $("msg").textContent = "Uloženo: " + name;
   }
   $("dlAll").onclick = () => res && save(res.all);
+  $("resetAll").onclick = () => {                         // všechna nastavení vlevo zpět na výchozí hodnoty
+    document.querySelectorAll("aside input, aside select").forEach((el) => {
+      if (el.type === "file") return;
+      if (el.type === "checkbox") el.checked = el.defaultChecked;
+      else if (el.tagName === "SELECT") { const o = [...el.options].find((x) => x.defaultSelected) || el.options[0]; el.value = o.value; }
+      else el.value = el.defaultValue;
+      if (el.classList.contains("cartp")) el.dispatchEvent(new Event("input"));
+    });
+    if ($("aiCart")) $("aiCart").textContent = "Použít";
+    $("msg").textContent = "Nastavení vráceno na výchozí.";
+    if (src) analyze();
+  };
   $("dlPlan").onclick = () => res && res.plan && save(res.plan, "_planek_malovani.svg");
 
   // ---- AI pomocník (jen v appce se serverem: exe nebo Docker) ----
@@ -1054,7 +1068,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   drop.addEventListener("drop", (e) => fromFile(e.dataTransfer.files[0]));
   document.addEventListener("paste", (e) => { const it = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/")); if (it) fromFile(it.getAsFile()); });
 
-  ["width", "frame", "gap", "struts", "strutWidth", "chamfer", "hole", "rim", "sepLine", "minFeature", "minPiece", "dropThin", "bridges", "engrave", "smooth"].forEach((id) => $(id).addEventListener("input", rebuild));
+  ["width", "frame", "gap", "struts", "strutWidth", "chamfer", "hole", "rim", "sepLine", "minFeature", "minPiece", "dropThin", "bridges", "engrave", "smooth", "tab"].forEach((id) => $(id).addEventListener("input", rebuild));
   $("nColors").addEventListener("change", () => src && analyze());
   $("nLayers").addEventListener("change", () => { if (an) { roles = defaultRoles(); manualRole = new Set(); drawColors(); rebuild(); } });
 
