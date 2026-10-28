@@ -477,6 +477,51 @@
     return s + "</svg>\n";
   }
 
+  // plánek malování k vytištění: vrstvy vedle sebe, díly světle podbarvené s číslem barvy, dole legenda
+  function planSvg(wmm, hmm, mm, sheets, paintInfo, cent, NL) {
+    const d = (polys, ox, oy) => polys.map((p) => closedD(p, mm, ox, oy)).join(" ");
+    const hex = (c) => "#" + c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
+    const tint = (c) => hex(c.map((v) => 255 - (255 - v) * 0.45));
+    const num = new Map();                                // barva -> číslo, stejné na všech vrstvách
+    paintInfo.forEach((pi) => pi && pi.fills.forEach((f) => { if (!num.has(f.q)) num.set(f.q, num.size + 1); }));
+    const gap = 12, lab = 12, cols = Math.min(NL, wmm > hmm * 1.6 ? 2 : 3), rows = Math.ceil(NL / cols);
+    const fs0 = Math.max(5, Math.min(12, (cols * wmm + (cols - 1) * gap) / 60)), rowH = fs0 * 1.6;
+    const legH = 14 + Math.ceil((num.size + 2) / 3) * rowH;
+    const W = cols * wmm + (cols - 1) * gap, H = rows * (hmm + lab + gap) + legH;
+    const fs = Math.max(5, Math.min(12, W / 60));
+    let s = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 ${W.toFixed(2)} ${H.toFixed(2)}" font-family="Arial, sans-serif"><title>plánek malování</title>\n<rect width="100%" height="100%" fill="#fff"/>\n`;
+    sheets.forEach((sh, k) => {
+      const ox = (k % cols) * (wmm + gap), oy = Math.floor(k / cols) * (hmm + lab + gap) + lab;
+      const title = k === 0 ? "1 Deska – natřít černě" : k === NL - 1 ? `${k + 1} Horní vrstva – čisté dřevo` : `${k + 1} Barvy`;
+      s += `<text x="${ox.toFixed(1)}" y="${(oy - 3).toFixed(1)}" font-size="${(fs * 0.9).toFixed(1)}" font-weight="bold">${title}</text>\n`;
+      const base = k === 0 ? "#e4e4e6" : "#ffffff";
+      if (sh.cut.length) s += `<path d="${d(sh.cut, ox, oy)}" fill="${base}" fill-rule="evenodd" stroke="#000" stroke-width="0.35"/>\n`;
+      if (k === 0) s += `<text x="${(ox + wmm / 2).toFixed(1)}" y="${(oy + hmm / 2 + fs).toFixed(1)}" font-size="${(fs * 2.5).toFixed(1)}" text-anchor="middle" font-weight="bold">D</text>\n`;
+      const pi = paintInfo[k];
+      if (pi) {
+        for (const f of pi.fills) s += `<path d="${d(f.polys, ox, oy)}" fill="${tint(cent[f.q])}" fill-rule="evenodd" stroke="#555" stroke-width="0.2"/>\n`;
+        for (const f of pi.fills) for (const [x, y, r] of f.pts) {
+          const z = Math.max(2.5, Math.min(fs, r * mm * 1.1));
+          s += `<text x="${(ox + x * mm).toFixed(1)}" y="${(oy + y * mm + z * 0.35).toFixed(1)}" font-size="${z.toFixed(1)}" text-anchor="middle" font-weight="bold">${num.get(f.q)}</text>\n`;
+        }
+        if (sh.cut.length) s += `<path d="${d(sh.cut, ox, oy)}" fill="none" stroke="#000" stroke-width="0.35"/>\n`;
+      }
+    });
+    // legenda
+    let ly = rows * (hmm + lab + gap) + 4;
+    s += `<text x="0" y="${(ly + fs * 0.8).toFixed(1)}" font-size="${fs.toFixed(1)}" font-weight="bold">Barvy</text>\n`;
+    ly += fs * 1.2;
+    const items = [...num.entries()].map(([q, n]) => [String(n), hex(cent[q]), hex(cent[q])]);
+    items.push(["D", "#000000", "deska: černá"], ["–", "#e8cca0", "horní vrstva: čisté dřevo"]);
+    const cw = W / 3;
+    items.forEach(([n, col, txt], i) => {
+      const x = (i % 3) * cw, y = ly + Math.floor(i / 3) * rowH;
+      s += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(fs * 2).toFixed(1)}" height="${(fs * 1.1).toFixed(1)}" fill="${col}" stroke="#000" stroke-width="0.3"/>`;
+      s += `<text x="${(x + fs * 2.5).toFixed(1)}" y="${(y + fs * 0.9).toFixed(1)}" font-size="${fs.toFixed(1)}"><tspan font-weight="bold">${n}</tspan>  ${txt}</text>\n`;
+    });
+    return s + "</svg>\n";
+  }
+
   // ---------- 1. krok: barvy ----------
   function analyze(rgba0, W, H, nColors, bg) {
     const fg = foreground(rgba0, W, H, bg);
@@ -966,7 +1011,7 @@
       const dOut = edt(not(mat), w, h, false).d, lim = (1.5 + ewP) * (1.5 + ewP);
       const colorOf = new Int16Array(N).fill(-1);
       for (let i = 0; i < N; i++) if (region[i]) colorOf[i] = L[near[i]];
-      const groups = [], lineMask = new Uint8Array(N);
+      const groups = [], lineMask = new Uint8Array(N), fills = [];
       for (let q = 0; q < cent.length; q++) {
         const mq = new Uint8Array(N); let cnt = 0;
         for (let i = 0; i < N; i++) if (colorOf[i] === q) { mq[i] = 1; cnt++; }
@@ -982,10 +1027,16 @@
           flush();
         }
         if (lines.length) groups.push({ q, color: "#" + cent[q].map((v) => v.toString(16).padStart(2, "0")).join(""), lines });
+        // plánek malování: plochy barvy a místo pro číslo (nejdál od kraje každého kousku)
+        const C = label(mq, w, h), dIn = edt(not(mq), w, h, false).d, best = new Float64Array(C.n + 1), at = new Int32Array(C.n + 1).fill(-1);
+        for (let i = 0; i < N; i++) { const c = C.lab[i]; if (c && dIn[i] > best[c]) { best[c] = dIn[i]; at[c] = i; } }
+        const pts = [];
+        for (let c = 1; c <= C.n; c++) if (at[c] >= 0 && C.sizes[c] * mm * mm >= 6) pts.push([at[c] % w, Math.floor(at[c] / w), Math.sqrt(best[c])]);
+        fills.push({ q, polys: contours(mq, w, h, eps), pts });
         const er = erode(mq, w, h, ewP);
         for (let i = 0; i < N; i++) if (mq[i] && !er[i] && dOut[i] > lim) lineMask[i] = 1;
       }
-      return { colorOf, groups, lineMask };
+      return { colorOf, groups, lineMask, fills };
     });
 
     const sheets = M.map((m, k) => {
@@ -994,6 +1045,7 @@
       return { label: k === NL - 1 && hasEngrave ? label + " + gravírovat fialové" : label, cut: k === 0 ? cM[0] : cont(or(ringR, m)), mark, paint: paintInfo[k] ? paintInfo[k].groups : [], engrave: k === NL - 1 && hasEngrave ? cont(and(engrave, m)) : [] };
     });
     const files = sheets.map((sh) => ({ svg: svg(wmm, hmm, mm, sh.cut, sh.mark, "vrstva " + sh.label, sh.paint, sh.engrave) }));
+    const plan = planSvg(wmm, hmm, mm, sheets, paintInfo, cent, NL);
     const all = combined(wmm, hmm, mm, sheets);
 
     // obrázky vrstev: dřevo s propálenou hranou, nátěr, díry průhledné, azurové značky
@@ -1023,7 +1075,7 @@
     });
     const holes = label(big, w, h).n;
     return {
-      files, all, layers, mm, lines: { w, h, data: linesImg },
+      files, all, plan, layers, mm, lines: { w, h, data: linesImg },
       cutPx: sheets.map((sh) => sh.cut.map((p) => closedD(p, 1, 0, 0)).join(" ")),
       stats: { wmm, hmm, silParts: label(l2, w, h).n, holes, pieces: nPieces, layers: NL, bridges: nBridges, frameJoined: f > 0 ? label(or(ringR, M[NL - 1]), w, h).n === 1 : true },
     };

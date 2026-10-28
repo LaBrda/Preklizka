@@ -502,6 +502,7 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
         colorIdx = Lu.copy()
     scale = mm
     paint_groups = [[] for _ in range(NL)]
+    plan_fills = [[] for _ in range(NL)]
     for k in range(1, NL - 1):
         vis = M[k] & ~M[k + 1]
         if not vis.any():
@@ -529,6 +530,17 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
             if lines:
                 col = "#" + "".join(f"{int(v):02x}" for v in cent[c])
                 paint_groups[k].append((col, lines))
+            # plánek malování: plocha barvy + místo pro číslo (nejdál od kraje každého kousku)
+            dist_in = cv2.distanceTransform(reg.astype(np.uint8), cv2.DIST_L2, 3)
+            lab_r, n_r = ndi.label(reg)
+            pts = []
+            for i, sl in enumerate(ndi.find_objects(lab_r), 1):
+                sub = np.where(lab_r[sl] == i, dist_in[sl], 0)
+                if (lab_r[sl] == i).sum() * mm * mm < 6:
+                    continue
+                y, x = np.unravel_index(int(sub.argmax()), sub.shape)
+                pts.append(((x + sl[1].start) * scale, (y + sl[0].start) * scale, float(sub.max()) * scale))
+            plan_fills[k].append((c, contours(reg, scale), pts))
 
     # ---- SVG
     wmm, hmm = w * mm, h * mm
@@ -549,6 +561,7 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
         sheets.append({"label": labels[k], "cut": cut, "mark": mark, "paint": paint_groups[k]})
         cut_px.append(cut)
     svg = combined_svg(wmm, hmm, sheets)
+    plan = plan_svg(wmm, hmm, sheets, plan_fills, cent, NL)
 
     # ---- náhledy vrstev (2x původní rozlišení)
     ps = max(1, int(math.ceil(max(w, h) / 1600)))   # náhled nejvýš ~1600 px, ať se prohlížeč neseká
@@ -580,6 +593,7 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
     joined = int(ndi.label(M[NL - 1] | (ring & rect), structure=np.ones((3, 3)))[1]) == 1
     return {
         "svg": svg,
+        "plan": plan,
         "layers": previews,
         "lw": int(pw), "lh": int(ph),
         "cutPx": cut_preview,
@@ -587,6 +601,59 @@ def build(lab: np.ndarray, cent: list, roles: list, opt: dict, line: np.ndarray 
         "stats": {"wmm": float(wmm), "hmm": float(hmm), "silParts": int(sil_parts), "holes": int(holes_n), "pieces": int(n_pieces),
                   "layers": int(NL), "bridges": int(n_bridges), "frameJoined": bool(joined), "engine": "server", "upscale": round(float(U), 1)},
     }
+
+
+def plan_svg(wmm, hmm, sheets, fills, cent, NL):
+    """Plánek malování k vytištění: vrstvy vedle sebe, díly světle podbarvené s číslem barvy, dole legenda."""
+    hexc = lambda c: "#" + "".join(f"{int(round(v)):02x}" for v in c)
+    tint = lambda c: hexc([255 - (255 - v) * 0.45 for v in c])
+    num = {}
+    for fk in fills:
+        for c, _, _ in fk:
+            num.setdefault(c, len(num) + 1)
+    gap, lab = 12.0, 12.0
+    cols = min(NL, 2 if wmm > hmm * 1.6 else 3)
+    rows = math.ceil(NL / cols)
+    fs0 = max(5.0, min(12.0, (cols * wmm + (cols - 1) * gap) / 60))
+    row_h = fs0 * 1.6
+    leg_h = 14 + math.ceil((len(num) + 2) / 3) * row_h
+    W = cols * wmm + (cols - 1) * gap
+    H = rows * (hmm + lab + gap) + leg_h
+    fs = max(5.0, min(12.0, W / 60))
+    out = [f'<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 {W:.2f} {H:.2f}" font-family="Arial, sans-serif"><title>plánek malování</title>',
+           '<rect width="100%" height="100%" fill="#fff"/>']
+    for k, sh in enumerate(sheets):
+        ox, oy = (k % cols) * (wmm + gap), (k // cols) * (hmm + lab + gap) + lab
+        off = np.array([ox, oy])
+        title = "1 Deska – natřít černě" if k == 0 else (f"{k + 1} Horní vrstva – čisté dřevo" if k == NL - 1 else f"{k + 1} Barvy")
+        out.append(f'<text x="{ox:.1f}" y="{oy - 3:.1f}" font-size="{fs * 0.9:.1f}" font-weight="bold">{title}</text>')
+        cut_d = path_d([p + off for p in sh["cut"]]) if sh["cut"] else ""
+        if cut_d:
+            out.append(f'<path d="{cut_d}" fill="{"#e4e4e6" if k == 0 else "#ffffff"}" fill-rule="evenodd" stroke="#000" stroke-width="0.35"/>')
+        if k == 0:
+            out.append(f'<text x="{ox + wmm / 2:.1f}" y="{oy + hmm / 2 + fs:.1f}" font-size="{fs * 2.5:.1f}" text-anchor="middle" font-weight="bold">D</text>')
+        if fills[k]:
+            for c, polys, _ in fills[k]:
+                if polys:
+                    out.append(f'<path d="{path_d([p + off for p in polys])}" fill="{tint(cent[c])}" fill-rule="evenodd" stroke="#555" stroke-width="0.2"/>')
+            for c, _, pts in fills[k]:
+                for x, y, r in pts:
+                    z = max(2.5, min(fs, r * 1.1))
+                    out.append(f'<text x="{ox + x:.1f}" y="{oy + y + z * 0.35:.1f}" font-size="{z:.1f}" text-anchor="middle" font-weight="bold">{num[c]}</text>')
+            if cut_d:
+                out.append(f'<path d="{cut_d}" fill="none" stroke="#000" stroke-width="0.35"/>')
+    ly = rows * (hmm + lab + gap) + 4
+    out.append(f'<text x="0" y="{ly + fs * 0.8:.1f}" font-size="{fs:.1f}" font-weight="bold">Barvy</text>')
+    ly += fs * 1.2
+    items = [(str(n), hexc(cent[c]), hexc(cent[c])) for c, n in num.items()]
+    items += [("D", "#000000", "deska: černá"), ("–", "#e8cca0", "horní vrstva: čisté dřevo")]
+    cw = W / 3
+    for i, (n, col, txt) in enumerate(items):
+        x, y = (i % 3) * cw, ly + (i // 3) * row_h
+        out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{fs * 2:.1f}" height="{fs * 1.1:.1f}" fill="{col}" stroke="#000" stroke-width="0.3"/>'
+                   f'<text x="{x + fs * 2.5:.1f}" y="{y + fs * 0.9:.1f}" font-size="{fs:.1f}"><tspan font-weight="bold">{n}</tspan>  {txt}</text>')
+    out.append("</svg>\n")
+    return "\n".join(out)
 
 
 def combined_svg(wmm, hmm, sheets):

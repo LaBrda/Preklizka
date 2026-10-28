@@ -301,6 +301,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     <p class="layerinfo" id="layerinfo"></p>
     <div class="dl">
       <button class="btn primary" id="dlAll">Stáhnout SVG pro laser</button>
+      <button class="btn" id="dlPlan" title="Vrstvy s čísly barev a legendou. Otevři v prohlížeči a vytiskni.">Plánek malování</button>
     </div>
     <p class="msg" id="msg" role="status"></p>
   </section>
@@ -441,7 +442,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       const bmp = await createImageBitmap(new Blob([bin], { type: "image/png" }));
       return { w: j.lw, h: j.lh, bitmap: bmp };
     }));
-    return { all: j.svg, layers, cutPx: j.cutPx, stats: j.stats, mm: j.mm };
+    return { all: j.svg, plan: j.plan, layers, cutPx: j.cutPx, stats: j.stats, mm: j.mm };
   }
 
   function analyze() {
@@ -859,6 +860,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     $("msg").textContent = "Uloženo: " + name;
   }
   $("dlAll").onclick = () => res && save(res.all);
+  $("dlPlan").onclick = () => res && res.plan && save(res.plan, "_planek_malovani.svg");
 
   // ---- AI pomocník (jen v appce se serverem: exe nebo Docker) ----
   let aiBase = null, aiPts = [], aiBox = null, aiSelMode = false, aiBusy = false, aiDrag = null;
