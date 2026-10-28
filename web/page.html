@@ -984,6 +984,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     else if (ready) $("cfSt").textContent = "Překreslí obrázek vlevo do kreslené podoby, tvar zůstane. Nejlépe s odstraněným pozadím." + (st.gpu ? "" : " Bez NVIDIA karty to potrvá několik minut.");
     else if (st.state === "installing") $("cfSt").textContent = "Instaluji: " + st.step + (st.log ? " – " + st.log : "");
     else if (st.state === "error") $("cfSt").textContent = st.step + " Zkus to znovu.";
+    else if (st.update) $("cfSt").textContent = "Nová verze AI kreslíře přidala části (překreslení výběru, vlastní model). Klikni na Nainstalovat, stáhne se jen to, co chybí (asi 2 GB).";
     else $("cfSt").textContent = `AI kreslíř překreslí fotku (bagr, auto…) do kreslené podoby jako animovaný obrázek. Potřebuje jednorázovou instalaci (${st.size}, do složky Preklizka_3D vedle exe).`;
     if (st.state === "error") $("cfInstall").hidden = false;
     const cur = $("cfLora").value;

@@ -190,7 +190,14 @@ def _install() -> None:
 
 # ---------------- AI kreslíř (překreslení do kreslené podoby) ----------------
 def kresba_installed() -> bool:
-    return (base_dir() / "kresba.txt").exists() and python().exists()
+    """Nainstalováno a nechybí žádný soubor modelu (nová verze appky může přidat další, pak stačí Nainstalovat znovu)."""
+    if not ((base_dir() / "kresba.txt").exists() and python().exists()):
+        return False
+    import re
+    m = re.search(r'^FILES = \{(.*?)^\}', (src_dir() / "repaint.py").read_text(encoding="utf-8"), re.S | re.M)
+    names = re.findall(r'"(sd/[^"]+|sdi/[^"]+|cn/[^"]+)"', m.group(1)) if m else []
+    d = base_dir() / "kresba_model"
+    return all((d / n).exists() for n in names) and (d / "sdxl" / "model_index.json").exists()
 
 
 def _env_k() -> dict:
@@ -208,6 +215,7 @@ def kresba_status() -> dict:
     if _st["gpu"] is None:
         _st["gpu"] = has_nvidia() if s["available"] else False
     s["gpu"] = _st["gpu"]
+    s["update"] = (base_dir() / "kresba.txt").exists() and not kresba_installed()
     s["size"] = ("zhruba 3,5 GB" if (base_dir() / "torch.txt").exists() else "zhruba 6 GB") if s["gpu"] else "zhruba 3,5 GB"
     return s
 
