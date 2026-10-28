@@ -186,9 +186,12 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
         <div class="fields">
           <div class="f"><label for="cfStr" title="Víc = víc kreslené, méně jako fotka">Síla změny <span id="cfStrV">0.9</span></label><div class="in"><input id="cfStr" type="range" min="0.4" max="1" step="0.05" value="0.9"></div></div>
           <div class="f"><label for="cfSeed" title="Stejné číslo = stejný výsledek, jiné číslo = jiná varianta">Varianta (seed)</label><div class="in"><input id="cfSeed" type="number" min="1" max="999999" value="7"></div></div>
+          <div class="f"><label for="cfModel">Model</label><div class="in"><select id="cfModel"><option value="">DreamShaper 8 (kreslený)</option><option value="own">Vlastní model…</option></select></div></div>
+          <div class="f"><label for="cfStyle" title="Kreslený = pro laser, realistický = vzhled jako fotka (s vlastním modelem, třeba Juggernaut)">Vzhled</label><div class="in"><select id="cfStyle"><option value="kresba">kreslený</option><option value="real">realistický</option></select></div></div>
           <div class="f"><label for="cfLora" title="Naučená postava: kreslí se pořád stejná tvář">Postava</label><div class="in"><select id="cfLora"><option value="">žádná</option></select></div></div>
           <div class="f"><label for="cfRatio">Nový obrázek</label><div class="in"><select id="cfRatio"><option>na šířku</option><option>čtverec</option><option>na výšku</option></select></div></div>
         </div>
+        <p class="hint" id="cfModelPath" hidden></p>
         <textarea id="cfText" rows="2" style="width:100%;margin-top:6px" placeholder="Co je na fotce (anglicky funguje nejlíp), např. yellow wheeled excavator, dark grey arm with bucket, dozer blade"></textarea>
         <div class="dl">
           <button class="btn primary aib" id="cfDraw" type="button">Překreslit obrázek</button>
@@ -994,7 +997,18 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   }
   $("cfInstall").onclick = async () => { await fetch("api/kresba/install", { method: "POST" }); cfRefresh(); };
   $("cfStr").oninput = () => ($("cfStrV").textContent = $("cfStr").value);
-  const cfParams = (mode) => ({ mode, prompt: $("cfText").value, strength: +$("cfStr").value, ratio: $("cfRatio").value, sens: +$("aiSens").value, seed: +$("cfSeed").value || 7, lora: $("cfLora").value });
+  const cfParams = (mode) => ({ mode, prompt: $("cfText").value, strength: +$("cfStr").value, ratio: $("cfRatio").value, sens: +$("aiSens").value, seed: +$("cfSeed").value || 7, lora: $("cfLora").value, model: $("cfModel").value === "own" ? cfModelPath : "", style: $("cfStyle").value });
+  let cfModelPath = "";
+  try { cfModelPath = localStorage.getItem("cfModelPath") || ""; } catch (e) {}
+  const cfShowModel = () => { $("cfModelPath").hidden = $("cfModel").value !== "own"; $("cfModelPath").textContent = cfModelPath ? "Vlastní model: " + cfModelPath : "Vyber soubor modelu (.safetensors)."; };
+  $("cfModel").onchange = async () => {
+    if ($("cfModel").value === "own" && window.pywebview && window.pywebview.api && window.pywebview.api.pick_model) {
+      const p = await window.pywebview.api.pick_model();
+      if (p) { cfModelPath = p; try { localStorage.setItem("cfModelPath", p); } catch (e) {} }
+      if (!cfModelPath) $("cfModel").value = "";
+    }
+    cfShowModel();
+  };
   $("cfInpaint").onclick = () => {
     if (!aiBase || (!aiPts.length && !aiBox)) { $("msg").textContent = "Nejdřív tlačítkem Vybrat kliknutím označ část, kterou chceš překreslit."; return; }
     if (!$("cfText").value.trim()) { $("msg").textContent = "Napiš do pole, co s vybranou částí (anglicky), např. red cab."; return; }

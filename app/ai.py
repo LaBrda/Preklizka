@@ -102,6 +102,8 @@ def needed(op: str, p: dict, gpu: bool) -> list[str]:
     if op == "kresba":
         if p.get("mode") == "inpaint":
             return ["sam-encoder.onnx", "sam-decoder.onnx"]
+        if p.get("model"):
+            return []
         return ["lineart-anime.onnx"] if p.get("mode") != "new" else []
     raise ValueError("Neznámá AI funkce.")
 
@@ -953,12 +955,13 @@ def kresba(rgba: np.ndarray, p: dict) -> np.ndarray:
     job = {"mode": mode, "prompt": p.get("prompt", ""), "strength": float(p.get("strength", 0.9)),
            "w": max(256, int(W * k) // 8 * 8), "h": max(256, int(H * k) // 8 * 8),
            "steps": int(p.get("steps") or (12 if os.environ.get("PREKLIZKA_KRESBA_FAST") else 25)),
-           "seed": int(p.get("seed") or 7), "lora": p.get("lora") or ""}
+           "seed": int(p.get("seed") or 7), "lora": p.get("lora") or "",
+           "model": p.get("model") or "", "style": p.get("style") or "kresba"}
     img_png = ctrl_png = None
     if mode != "new":
         rgb = _flatten(rgba)                             # průhledné = bílá
         img_png = encode(np.dstack([rgb, np.full((H, W), 255, np.uint8)]))
-    if mode in ("draw", "sketch"):
+    if mode in ("draw", "sketch") and not p.get("model"):     # vlastní model jede bez ControlNetu
         lines = ai_lines(rgb, 0.55 + 0.035 * float(np.clip(p.get("sens", 5), 1, 10)))
         if not (rgba[..., 3] > 127).all():
             lines &= cv2.dilate((rgba[..., 3] > 127).astype(np.uint8), np.ones((5, 5), np.uint8)) > 0

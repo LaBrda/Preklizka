@@ -143,6 +143,12 @@ class Api:
             f.write(base64.b64decode(b64))
         return path
 
+    def pick_model(self):
+        """Vlastní model pro AI kreslíře (.safetensors, třeba ze složky ComfyUI)."""
+        import webview
+        res = self._window.create_file_dialog(webview.OPEN_DIALOG, file_types=("Model (*.safetensors)", "Všechny soubory (*.*)"))
+        return (res[0] if isinstance(res, (list, tuple)) else res) if res else ""
+
     def save_file(self, name, content):
         import webview
         res = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=name, file_types=("SVG (*.svg)", "Všechny soubory (*.*)"))

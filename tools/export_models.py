@@ -56,6 +56,12 @@ MIRROR.update({
     "ds8-tok-config.json": DS + "tokenizer/tokenizer_config.json",
     "ds8i-unet-config.json": "https://huggingface.co/Lykon/dreamshaper-8-inpainting/resolve/main/unet/config.json",
     "ds8i-unet.fp16.safetensors": "https://huggingface.co/Lykon/dreamshaper-8-inpainting/resolve/main/unet/diffusion_pytorch_model.fp16.safetensors",
+    # SDXL: jen konfigurace (vlastní model uživatele .safetensors se načte bez internetu)
+    **{"sdxl-" + k.replace("/", "-"): "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/" + k for k in (
+        "model_index.json", "unet/config.json", "vae/config.json", "text_encoder/config.json", "text_encoder_2/config.json",
+        "scheduler/scheduler_config.json", "tokenizer/merges.txt", "tokenizer/vocab.json", "tokenizer/special_tokens_map.json",
+        "tokenizer/tokenizer_config.json", "tokenizer_2/merges.txt", "tokenizer_2/vocab.json", "tokenizer_2/special_tokens_map.json",
+        "tokenizer_2/tokenizer_config.json")},
     "cn-lineart-config.json": [CN + "main/config.json", CN + "refs%2Fpr%2F3/config.json"],
     "cn-lineart.fp16.safetensors": [CN + "main/diffusion_pytorch_model.fp16.safetensors",
                                     CN + "refs%2Fpr%2F3/diffusion_pytorch_model.fp16.safetensors"],
