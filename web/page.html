@@ -197,7 +197,8 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
           <button class="btn primary aib" id="cfDraw" type="button">Překreslit obrázek</button>
           <button class="btn aib" id="cfSketch" type="button" title="Nový kreslený obrázek podle popisu, fotka jen volně vede polohu">Nakreslit podle popisu</button>
           <button class="btn aib" id="cfNew" type="button">Nový obrázek z textu</button>
-          <button class="btn aib" id="cfInpaint" type="button" title="Nejdřív Vybrat kliknutím označ část, pak napiš, co s ní">Překreslit vybranou část</button>
+          <button class="btn aib" id="cfMark" type="button" title="Označ část obrázku, kterou chceš změnit">Označit část</button>
+          <button class="btn aib" id="cfInpaint" type="button" title="Nejdřív Označit část, pak napiš, co s ní">Překreslit vybranou část</button>
         </div>
         <details style="margin-top:8px"><summary>Naučit postavu (LoRA)</summary>
           <p class="hint">Vyber 15–30 obrázků jedné postavy (různé pózy a úhly). Trénink na grafické kartě trvá asi 20–40 minut. Pak postavu vybereš nahoře v poli Postava.</p>
@@ -1023,8 +1024,9 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     $("cfRun").textContent = "Model " + j.name + " je uložený a bude v nabídce i příště.";
   };
   $("cfInpaint").onclick = () => {
-    if (!aiBase || (!aiPts.length && !aiBox)) { $("msg").textContent = "Nejdřív tlačítkem Vybrat kliknutím označ část, kterou chceš překreslit."; return; }
-    if (!$("cfText").value.trim()) { $("msg").textContent = "Napiš do pole, co s vybranou částí (anglicky), např. red cab."; return; }
+    if (!aiBase || (!aiPts.length && !aiBox)) { $("cfRun").hidden = false; $("cfRun").textContent = "Nejdřív tlačítkem Označit část označ, co chceš překreslit."; return; }
+    if (!$("cfText").value.trim()) { $("cfRun").hidden = false; $("cfRun").textContent = "Napiš do pole, co s označenou částí (anglicky), např. red cab."; return; }
+    if (selPaint) { setAiSel(false); selPaint = false; $("cfMark").classList.remove("primary"); $("cfMark").textContent = "Označit část"; }
     aiDo("kresba", Object.assign(cfParams("inpaint"), { points: aiPts, box: aiBox }), "AI překresluje vybranou část", "upraveno", "Hotovo, zbytek obrázku zůstal beze změny.", aiBase);
   };
   $("ltGo").onclick = async () => {
@@ -1072,8 +1074,17 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     $("aiSel").classList.toggle("primary", on);
     if (on) { if (!aiBase) { aiBase = src; aiPts = []; aiBox = null; } show("bg"); $("msg").textContent = "Táhnutím myší ohraničí postavu. Pak klikem přidáš chybějící část, Shift + klikem ubereš, co tam nepatří."; }
   }
-  $("aiSel").addEventListener("click", () => setAiSel(!aiSelMode));
-  function aiSelRun() { aiDo("select", { points: aiPts, box: aiBox }, "Vybírám", "výběr", "Vybráno. Klikem přidáš část, Shift + klikem ubereš, nový obdélník začne znovu."); }
+  $("aiSel").addEventListener("click", () => { selPaint = false; setAiSel(!aiSelMode); });
+  $("cfMark").addEventListener("click", () => {
+    if (!src) return;
+    if (selPaint && aiSelMode) { setAiSel(false); selPaint = false; $("cfMark").classList.remove("primary"); $("cfMark").textContent = "Označit část"; return; }
+    aiBase = src; aiPts = []; aiBox = null; selPaint = true; setAiSel(true);
+    $("cfMark").classList.add("primary"); $("cfMark").textContent = "Hotovo s označením";
+    $("cfRun").hidden = false; $("cfRun").textContent = "Táhnutím myší ohraničí část, kterou chceš změnit (třeba kabinu), nebo na ni klikni.";
+  });
+  let selPaint = false;                                  // true = jen označit část pro AI kreslíře (nic se neodřízne)
+  function aiSelRun() { if (selPaint) { drawBg(); $("cfRun").hidden = false; $("cfRun").textContent = "Označeno. Klikem přidáš, Shift + klikem ubereš. Pak napiš, co s tím, a klikni na Překreslit vybranou část."; return; }
+    aiDo("select", { points: aiPts, box: aiBox }, "Vybírám", "výběr", "Vybráno. Klikem přidáš část, Shift + klikem ubereš, nový obdélník začne znovu."); }
   function aiClick(x, y, neg) {
     if (!aiBase) { aiBase = src; aiPts = []; aiBox = null; }
     const k = aiBase.w / src.w;
@@ -1122,9 +1133,6 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     if (!src || aiBusy) return;
     aiBusy = true; document.querySelectorAll(".aib").forEach((b) => (b.disabled = true)); busy(true);
     const t0 = Date.now();
-    const kr = op === "kresba", tick = kr ? setInterval(() => { $("cfRun").textContent = `${what}… ${Math.round((Date.now() - t0) / 1000)} s` +
-      (params.model ? " (vlastní model se poprvé načítá i 1–2 minuty)" : ""); }, 1000) : 0;
-    if (kr) { $("cfRun").hidden = false; $("cfRun").textContent = what + "…"; }
     try {
       const post = (u, b) => fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
       const params = { kind: $("aiCutKind").value, soft: true };
