@@ -145,6 +145,21 @@ def _runtime(n: int) -> None:
         (b / "torch.txt").write_text("ok")
 
 
+def _models(script: str, dst: Path, step: str) -> None:
+    """Modely stáhne appka (httpx s vlastními certifikáty); urllib ve vloženém Pythonu ve Windows certifikátům GitHubu nevěří."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_m", str(src_dir() / script))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    for local, remote in mod.FILES.items():
+        f = dst / local
+        if f.exists() and f.stat().st_size > 0:
+            continue
+        f.parent.mkdir(parents=True, exist_ok=True)
+        _download(mod.BASE + remote, f.with_name(f.name + ".part"), f"{step}: {remote}")
+        os.replace(f.with_name(f.name + ".part"), f)
+
+
 def _pip() -> list:
     return [str(python()), "-m", "pip", "install", "--no-warn-script-location", "--disable-pip-version-check"]
 
@@ -164,8 +179,8 @@ def _install() -> None:
         (base_dir() / "hotovo.txt").unlink(missing_ok=True)
         _runtime(5)
         _run(_pip() + LIBS, "4/5 Instaluji knihovny")
-        app = _copy_app()
-        _run([str(python()), str(app / "run3d.py"), "--download"], "5/5 Stahuji model TripoSR (asi 1,7 GB)")
+        _copy_app()
+        _models("run3d.py", base_dir() / "model", "5/5 Stahuji model TripoSR (asi 1,7 GB)")
         (base_dir() / "hotovo.txt").write_text("ok")
         _st.update(state="ready", step="Doplněk je nainstalovaný.", log="")
     except Exception as e:                                            # noqa: BLE001
@@ -203,8 +218,8 @@ def _install_k() -> None:
         (base_dir() / "kresba.txt").unlink(missing_ok=True)
         _runtime(5)
         _run(_pip() + ["--target", str(base_dir() / "kresba_libs"), "--upgrade"] + LIBS_K, "4/5 Instaluji knihovny kreslíře")
-        app = _copy_app()
-        _run([str(python()), str(app / "repaint.py"), "--download"], "5/5 Stahuji model kreslíře (asi 2,9 GB)", _env_k())
+        _copy_app()
+        _models("repaint.py", base_dir() / "kresba_model", "5/5 Stahuji model kreslíře (asi 2,9 GB)")
         (base_dir() / "kresba.txt").write_text("ok")
         _stk.update(state="ready", step="AI kreslíř je nainstalovaný.", log="")
     except Exception as e:                                            # noqa: BLE001
