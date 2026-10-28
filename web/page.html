@@ -179,18 +179,15 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
         <div class="f"><label for="aiCutKind">Obrázek je</label><div class="in"><select id="aiCutKind"><option value="photo" selected>fotka</option><option value="anime">kreslený</option><option value="white">odstranit všechnu bílou</option></select></div></div>
         <button class="btn aib" id="aiCut" type="button" style="align-self:end">Stáhnout PNG bez pozadí</button>
       </div>
-      <h3>AI kreslíř (ComfyUI)</h3>
-      <p class="hint" id="cfSt">Překreslí fotku do kreslené podoby modelem v tvém ComfyUI. Tvar drží obrysy (ControlNet).</p>
-      <div class="fields">
-        <div class="f"><label for="cfUrl">Adresa ComfyUI</label><div class="in"><input id="cfUrl" type="text" value="127.0.0.1:8188"></div></div>
-        <button class="btn" id="cfConn" type="button" style="align-self:end">Připojit</button>
-        <div class="f cfx" hidden><label for="cfCkpt">Model</label><div class="in"><select id="cfCkpt"></select></div></div>
-        <div class="f cfx" hidden><label for="cfCn" title="Drží tvar podle obrysů. Pro SD 1.5 lineart nebo canny, pro SDXL jejich XL verze.">ControlNet</label><div class="in"><select id="cfCn"></select></div></div>
-        <div class="f cfx" hidden><label for="cfStr" title="Víc = víc kreslené, méně jako fotka">Síla změny <span id="cfStrV">0.9</span></label><div class="in"><input id="cfStr" type="range" min="0.4" max="1" step="0.05" value="0.9"></div></div>
-        <div class="f cfx" hidden><label for="cfRatio">Nový obrázek</label><div class="in"><select id="cfRatio"><option>na šířku</option><option>čtverec</option><option>na výšku</option></select></div></div>
-      </div>
+      <h3>AI kreslíř</h3>
+      <p class="hint" id="cfSt">Zjišťuji AI kreslíře…</p>
+      <button class="btn" id="cfInstall" type="button" hidden>Nainstalovat AI kreslíře</button>
       <div class="cfx" hidden>
-        <textarea id="cfText" rows="2" style="width:100%;margin-top:6px" placeholder="Co je na obrázku nebo co změnit (anglicky funguje nejlíp), např. yellow excavator, no text"></textarea>
+        <div class="fields">
+          <div class="f"><label for="cfStr" title="Víc = víc kreslené, méně jako fotka">Síla změny <span id="cfStrV">0.9</span></label><div class="in"><input id="cfStr" type="range" min="0.4" max="1" step="0.05" value="0.9"></div></div>
+          <div class="f"><label for="cfRatio">Nový obrázek</label><div class="in"><select id="cfRatio"><option>na šířku</option><option>čtverec</option><option>na výšku</option></select></div></div>
+        </div>
+        <textarea id="cfText" rows="2" style="width:100%;margin-top:6px" placeholder="Co je na obrázku (anglicky funguje nejlíp), např. yellow excavator"></textarea>
         <div class="dl">
           <button class="btn primary aib" id="cfDraw" type="button">Překreslit obrázek</button>
           <button class="btn aib" id="cfNew" type="button">Nový obrázek z textu</button>
@@ -406,7 +403,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       $("srv").hidden = false;
       $("appsw").hidden = server.mode !== "exe";
       $("updBtn").hidden = !server.update;
-      if (server.ai && server.ai.available) { $("aiSec").hidden = false; $("aiDev").textContent = "počítá " + server.ai.device; setTimeout(() => $("cfConn").click(), 0); }
+      if (server.ai && server.ai.available) { $("aiSec").hidden = false; $("aiDev").textContent = "počítá " + server.ai.device; setTimeout(cfRefresh, 0); }
       showServer(await latestVersion());
       if (an) rebuild();
     } catch (e) { server = null; }
@@ -958,31 +955,29 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     aiBusy = false; document.querySelectorAll(".aib").forEach((b) => (b.disabled = false));
   }
   let aiKeep = false;
-  // ---- AI kreslíř přes ComfyUI uživatele ----
-  try { const u = localStorage.getItem("cfUrl"); if (u) $("cfUrl").value = u; } catch (e) {}
-  const cfPick = (sel, list, pref) => { const cur = sel.value; sel.innerHTML = list.map((x) => `<option>${x}</option>`).join(""); const want = list.find((x) => x === cur) || list.find(pref); if (want) sel.value = want; };
-  async function cfConnect() {
-    const url = $("cfUrl").value.trim();
-    try { localStorage.setItem("cfUrl", url); } catch (e) {}
-    $("cfSt").textContent = "Připojuji ComfyUI…";
-    let j = {};
-    try { j = await (await fetch("api/comfy?url=" + encodeURIComponent(url))).json(); } catch (e) { j = { ok: false, error: e.message }; }
-    document.querySelectorAll(".cfx").forEach((el) => (el.hidden = !j.ok));
-    if (!j.ok) { $("cfSt").textContent = "ComfyUI na " + url + " neodpovídá. Spusť ho a klikni na Připojit."; return; }
-    const ck = j.ckpts || [];
-    cfPick($("cfCkpt"), ck, (x) => /toon|cartoon|anime|flat|vector|disney|pixar/i.test(x));
-    const xl = /xl|pony|illustrious|noob/i.test($("cfCkpt").value);
-    cfPick($("cfCn"), ["bez ControlNetu"].concat(j.controlnets || []), (x) => /lineart|canny|scribble|softedge/i.test(x) && /xl/i.test(x) === xl);
-    $("cfSt").textContent = ck.length ? `ComfyUI připojeno (${ck.length} modelů). Překreslení vezme obrázek vlevo, nejlépe s odstraněným pozadím.` : "ComfyUI připojeno, ale nemá žádný model (checkpoint).";
+  // ---- AI kreslíř (doplněk exe): překreslení do kreslené podoby ----
+  let cfTimer = 0;
+  async function cfRefresh() {
+    let st = {};
+    try { st = await (await fetch("api/kresba", { cache: "no-store" })).json(); } catch (e) { st = { available: false }; }
+    const ready = st.state === "ready";
+    document.querySelectorAll(".cfx").forEach((el) => (el.hidden = !ready));
+    $("cfInstall").hidden = !st.available || ready || st.state === "installing";
+    if (!st.available) $("cfSt").textContent = "AI kreslíř (překreslí fotku do kreslené podoby) funguje jen v Preklizka.exe ve Windows.";
+    else if (ready) $("cfSt").textContent = "Překreslí obrázek vlevo do kreslené podoby, tvar zůstane. Nejlépe s odstraněným pozadím." + (st.gpu ? "" : " Bez NVIDIA karty to potrvá několik minut.");
+    else if (st.state === "installing") $("cfSt").textContent = "Instaluji: " + st.step + (st.log ? " – " + st.log : "");
+    else if (st.state === "error") $("cfSt").textContent = st.step + " Zkus to znovu.";
+    else $("cfSt").textContent = `AI kreslíř překreslí fotku (bagr, auto…) do kreslené podoby jako animovaný obrázek. Potřebuje jednorázovou instalaci (${st.size}, do složky Preklizka_3D vedle exe).`;
+    if (st.state === "error") $("cfInstall").hidden = false;
+    clearTimeout(cfTimer);
+    if (st.state === "installing") cfTimer = setTimeout(cfRefresh, 1500);
   }
-  $("cfConn").onclick = cfConnect;
+  $("cfInstall").onclick = async () => { await fetch("api/kresba/install", { method: "POST" }); cfRefresh(); };
   $("cfStr").oninput = () => ($("cfStrV").textContent = $("cfStr").value);
-  const cfParams = (mode) => ({ url: $("cfUrl").value.trim(), mode, ckpt: $("cfCkpt").value, cn: $("cfCn").selectedIndex > 0 ? $("cfCn").value : "",
-    prompt: $("cfText").value, strength: +$("cfStr").value, ratio: $("cfRatio").value, sens: +$("aiSens").value });
-  $("cfDraw").onclick = () => aiDo("comfy", cfParams("draw"), "AI překresluje obrázek v ComfyUI", "překresleno", "Hotovo. Teď rovnou vrstvy, nebo Úpravy obrázku.");
+  const cfParams = (mode) => ({ mode, prompt: $("cfText").value, strength: +$("cfStr").value, ratio: $("cfRatio").value, sens: +$("aiSens").value });
+  $("cfDraw").onclick = () => aiDo("kresba", cfParams("draw"), "AI překresluje obrázek", "překresleno", "Hotovo. Teď rovnou vrstvy, případně Úpravy obrázku.");
   $("cfNew").onclick = () => { if (!$("cfText").value.trim()) { $("msg").textContent = "Napiš do pole, co má být na obrázku."; return; }
-    aiDo("comfy", cfParams("new"), "AI kreslí nový obrázek v ComfyUI", "nový obrázek", "Hotovo. Pozadí odstraníš tlačítkem Pozadí pryč (kreslený).", src || { w: 8, h: 8, data: new Uint8ClampedArray(256) }); };
-  if ($("aiSec") && !$("aiSec").hidden) cfConnect();
+    aiDo("kresba", cfParams("new"), "AI kreslí nový obrázek", "nový obrázek", "Hotovo. Pozadí odstraníš tlačítkem Pozadí pryč (kreslený).", src || { w: 8, h: 8, data: new Uint8ClampedArray(256) }); };
   $("aiBgA").addEventListener("click", () => aiDo("bg", { kind: "anime" }, "Odstraňuji pozadí", "bez pozadí", "Pozadí odstraněno."));
   $("aiBgP").addEventListener("click", () => aiDo("bg", { kind: "photo" }, "Odstraňuji pozadí", "bez pozadí", "Pozadí odstraněno. U fotky teď klikni na Použít v Úpravách obrázku: sjednotí odstíny a lesky, jinak je z každého odstínu jiný flek."));
   $("aiUp").addEventListener("click", () => aiDo("upscale", { quality: "auto" }, "Zvětšuji a čistím obrázek", "zvětšeno", "Obrázek zvětšen 4× a vyčištěn."));

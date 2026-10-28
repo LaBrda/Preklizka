@@ -1,0 +1,50 @@
+name: AI kreslíř (test instalace)
+
+on:
+  push:
+    branches: [main]
+    paths: [app/addon3d.py, addon3d/repaint.py, .github/workflows/kresba.yml]
+  workflow_dispatch:
+
+jobs:
+  kresba:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalace a překreslení (procesor)
+        shell: bash
+        env:
+          PREKLIZKA_3D: ${{ runner.temp }}/p3d
+          PREKLIZKA_3D_TEST: "1"
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: |
+          pip install httpx pillow numpy
+          python - <<'PY'
+          import sys, time, json, traceback, io
+          sys.path.insert(0, "app")
+          try:
+              import addon3d
+              t = time.time(); addon3d._install_k(); print("instalace", round(time.time() - t), "s")
+              print(json.dumps(addon3d.kresba_status(), ensure_ascii=False))
+              if not addon3d.kresba_installed():
+                  raise RuntimeError(str(addon3d._stk))
+              from PIL import Image, ImageDraw
+              im = Image.new("RGB", (320, 192), "white"); d = ImageDraw.Draw(im)
+              d.rectangle((30, 60, 290, 140), fill=(220, 30, 30)); d.ellipse((50, 120, 110, 180), fill=(20, 20, 20)); d.ellipse((210, 120, 270, 180), fill=(20, 20, 20))
+              ln = Image.new("RGB", (320, 192), "black"); e = ImageDraw.Draw(ln)
+              e.rectangle((30, 60, 290, 140), outline="white", width=2); e.ellipse((50, 120, 110, 180), outline="white", width=2); e.ellipse((210, 120, 270, 180), outline="white", width=2)
+              b1, b2 = io.BytesIO(), io.BytesIO(); im.save(b1, "PNG"); ln.save(b2, "PNG")
+              for mode in ("draw", "new"):
+                  t = time.time()
+                  out = addon3d.run_kresba({"mode": mode, "prompt": "red fire truck", "strength": 0.9, "w": 320, "h": 192, "steps": 4},
+                                           b1.getvalue() if mode == "draw" else None, b2.getvalue() if mode == "draw" else None)
+                  o = Image.open(io.BytesIO(out)); px = list(o.convert("RGB").resize((8, 8)).getdata())
+                  msg = f"{mode}: {o.size} za {round(time.time() - t)} s, barvy {px[27]} {px[36]}"
+                  print("::notice title=Kreslíř::" + msg)
+          except BaseException as e:
+              print("::error title=Chyba::" + (repr(e) + " " + traceback.format_exc()).replace("\n", " | ")[-3500:]); sys.exit(1)
+          PY

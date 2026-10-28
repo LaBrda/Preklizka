@@ -186,11 +186,20 @@ def addon3d_run(inp: Addon3dIn):
             raise HTTPException(500, str(e))
 
 
-@app.get("/api/comfy")
-def comfy_status(url: str = ""):
-    """Je ComfyUI uživatele dostupné a jaké má modely (AI kreslíř)."""
-    import comfy
-    return comfy.status(url or None)
+@app.get("/api/kresba")
+def kresba_status():
+    import addon3d
+    if not DESKTOP and not os.environ.get("PREKLIZKA_3D_TEST"):
+        return {"available": False}
+    return addon3d.kresba_status()
+
+
+@app.post("/api/kresba/install")
+def kresba_install():
+    import addon3d
+    if not DESKTOP and not os.environ.get("PREKLIZKA_3D_TEST"):
+        raise HTTPException(404, "Jen v Preklizka.exe.")
+    return addon3d.start_install_k()
 
 
 @app.get("/api/commons")
