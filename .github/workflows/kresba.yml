@@ -38,10 +38,10 @@ jobs:
               ln = Image.new("RGB", (320, 192), "black"); e = ImageDraw.Draw(ln)
               e.rectangle((30, 60, 290, 140), outline="white", width=2); e.ellipse((50, 120, 110, 180), outline="white", width=2); e.ellipse((210, 120, 270, 180), outline="white", width=2)
               b1, b2 = io.BytesIO(), io.BytesIO(); im.save(b1, "PNG"); ln.save(b2, "PNG")
-              for mode in ("draw", "new"):
+              for mode in ("draw", "sketch", "new"):
                   t = time.time()
                   out = addon3d.run_kresba({"mode": mode, "prompt": "red fire truck", "strength": 0.9, "w": 320, "h": 192, "steps": 4},
-                                           b1.getvalue() if mode == "draw" else None, b2.getvalue() if mode == "draw" else None)
+                                           b1.getvalue() if mode == "draw" else None, b2.getvalue() if mode != "new" else None)
                   o = Image.open(io.BytesIO(out)); px = list(o.convert("RGB").resize((8, 8)).getdata())
                   msg = f"{mode}: {o.size} za {round(time.time() - t)} s, barvy {px[27]} {px[36]}"
                   print("::notice title=Kreslíř::" + msg)

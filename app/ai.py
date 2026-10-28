@@ -950,7 +950,8 @@ def kresba(rgba: np.ndarray, p: dict) -> np.ndarray:
     k = side / max(W, H)
     job = {"mode": mode, "prompt": p.get("prompt", ""), "strength": float(p.get("strength", 0.9)),
            "w": max(256, int(W * k) // 8 * 8), "h": max(256, int(H * k) // 8 * 8),
-           "steps": int(p.get("steps") or (12 if os.environ.get("PREKLIZKA_KRESBA_FAST") else 25))}
+           "steps": int(p.get("steps") or (12 if os.environ.get("PREKLIZKA_KRESBA_FAST") else 25)),
+           "seed": int(p.get("seed") or 7)}
     img_png = ctrl_png = None
     if mode != "new":
         rgb = _flatten(rgba)                             # průhledné = bílá
@@ -961,7 +962,7 @@ def kresba(rgba: np.ndarray, p: dict) -> np.ndarray:
         g = np.where(lines, 255, 0).astype(np.uint8)
         ctrl_png = encode(np.dstack([g, g, g, np.full((H, W), 255, np.uint8)]))
     res = decode(addon3d.run_kresba(job, img_png, ctrl_png))
-    if mode != "new":
+    if mode == "draw":
         res = cv2.resize(res, (W, H), interpolation=cv2.INTER_LANCZOS4)
         if not (rgba[..., 3] > 127).all():              # pozadí zůstane průhledné jako na vstupu
             res[..., 3] = rgba[..., 3]

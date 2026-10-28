@@ -185,11 +185,13 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       <div class="cfx" hidden>
         <div class="fields">
           <div class="f"><label for="cfStr" title="Víc = víc kreslené, méně jako fotka">Síla změny <span id="cfStrV">0.9</span></label><div class="in"><input id="cfStr" type="range" min="0.4" max="1" step="0.05" value="0.9"></div></div>
+          <div class="f"><label for="cfSeed" title="Stejné číslo = stejný výsledek, jiné číslo = jiná varianta">Varianta (seed)</label><div class="in"><input id="cfSeed" type="number" min="1" max="999999" value="7"></div></div>
           <div class="f"><label for="cfRatio">Nový obrázek</label><div class="in"><select id="cfRatio"><option>na šířku</option><option>čtverec</option><option>na výšku</option></select></div></div>
         </div>
-        <textarea id="cfText" rows="2" style="width:100%;margin-top:6px" placeholder="Co je na obrázku (anglicky funguje nejlíp), např. yellow excavator"></textarea>
+        <textarea id="cfText" rows="2" style="width:100%;margin-top:6px" placeholder="Co je na fotce (anglicky funguje nejlíp), např. yellow wheeled excavator, dark grey arm with bucket, dozer blade"></textarea>
         <div class="dl">
           <button class="btn primary aib" id="cfDraw" type="button">Překreslit obrázek</button>
+          <button class="btn aib" id="cfSketch" type="button" title="Nový kreslený obrázek podle popisu, fotka jen volně vede polohu">Nakreslit podle popisu</button>
           <button class="btn aib" id="cfNew" type="button">Nový obrázek z textu</button>
         </div>
       </div>
@@ -974,7 +976,9 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   }
   $("cfInstall").onclick = async () => { await fetch("api/kresba/install", { method: "POST" }); cfRefresh(); };
   $("cfStr").oninput = () => ($("cfStrV").textContent = $("cfStr").value);
-  const cfParams = (mode) => ({ mode, prompt: $("cfText").value, strength: +$("cfStr").value, ratio: $("cfRatio").value, sens: +$("aiSens").value });
+  const cfParams = (mode) => ({ mode, prompt: $("cfText").value, strength: +$("cfStr").value, ratio: $("cfRatio").value, sens: +$("aiSens").value, seed: +$("cfSeed").value || 7 });
+  $("cfSketch").onclick = () => { if (!$("cfText").value.trim()) { $("msg").textContent = "Napiš do pole, co je na fotce (anglicky), např. yellow wheeled excavator with dozer blade."; return; }
+    aiDo("kresba", cfParams("sketch"), "AI kreslí obrázek podle popisu", "nakresleno", "Hotovo. Pozadí odstraníš tlačítkem Pozadí pryč (kreslený), pak vrstvy."); };
   $("cfDraw").onclick = () => aiDo("kresba", cfParams("draw"), "AI překresluje obrázek", "překresleno", "Hotovo. Teď rovnou vrstvy, případně Úpravy obrázku.");
   $("cfNew").onclick = () => { if (!$("cfText").value.trim()) { $("msg").textContent = "Napiš do pole, co má být na obrázku."; return; }
     aiDo("kresba", cfParams("new"), "AI kreslí nový obrázek", "nový obrázek", "Hotovo. Pozadí odstraníš tlačítkem Pozadí pryč (kreslený).", src || { w: 8, h: 8, data: new Uint8ClampedArray(256) }); };

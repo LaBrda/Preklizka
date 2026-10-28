@@ -28,10 +28,10 @@ FILES = {
     "cn/config.json": "cn-lineart-config.json",
     "cn/diffusion_pytorch_model.fp16.safetensors": "cn-lineart.fp16.safetensors",
 }
-STYLE = ("flat vector illustration, 2d cartoon, children's animated series, thick clean black outlines, "
-         "flat solid colors, no shading, simple shapes, minimal details, sticker style, plain white background")
-NEGATIVE = ("shading, gradient, shadows, highlights, reflections, photo, photorealistic, realistic, 3d render, "
-            "texture, noise, grain, detailed, complex, text, letters, watermark, logo, blurry, messy lines, sketch")
+STYLE = ("simple flat cartoon illustration for kids, thick uniform black outlines, few large flat color areas, "
+         "no shading, minimal details, clean simple shapes, plain white background")
+NEGATIVE = ("photo, photorealistic, realistic, 3d render, shading, gradient, shadows, highlights, reflections, "
+            "text, letters, logo, watermark, hoses, cables, small details, texture, noise, grain, blurry, messy lines")
 
 
 def model_dir():
@@ -67,8 +67,8 @@ def make(job):
     import numpy as np
     import torch
     from PIL import Image
-    from diffusers import (ControlNetModel, StableDiffusionControlNetImg2ImgPipeline, StableDiffusionPipeline,
-                           UniPCMultistepScheduler)
+    from diffusers import (ControlNetModel, StableDiffusionControlNetImg2ImgPipeline, StableDiffusionControlNetPipeline,
+                           StableDiffusionPipeline, UniPCMultistepScheduler)
 
     gpu = torch.cuda.is_available()
     dt = torch.float16 if gpu else (torch.bfloat16 if os.environ.get("PREKLIZKA_BF16") else torch.float32)
@@ -93,10 +93,19 @@ def make(job):
         res.save(job["out"])
         say("STAV Hotovo")
         return
+    con = Image.open(job["ctrl"]).convert("RGB").resize((w, h), Image.LANCZOS)
+    if job.get("mode") == "sketch":                       # podle popisu: nový obrázek, obrysy fotky jen volně vedou polohu
+        p3 = StableDiffusionControlNetPipeline(**pipe.components).to("cuda" if gpu else "cpu")
+        p3.set_progress_bar_config(disable=True)
+        say("STAV AI kreslí obrázek podle popisu…")
+        res = p3(prompt, negative_prompt=NEGATIVE, image=con, width=w, height=h, num_inference_steps=steps, guidance_scale=cfg,
+                 controlnet_conditioning_scale=float(job.get("cn", 0.45)), control_guidance_end=0.6, generator=g).images[0]
+        res.save(job["out"])
+        say("STAV Hotovo")
+        return
     pipe = pipe.to("cuda" if gpu else "cpu")
     pipe.set_progress_bar_config(disable=True)
     img = Image.open(job["img"]).convert("RGB").resize((w, h), Image.LANCZOS)
-    con = Image.open(job["ctrl"]).convert("RGB").resize((w, h), Image.LANCZOS)
     say("STAV AI překresluje obrázek…")
     res = pipe(prompt, negative_prompt=NEGATIVE, image=img, control_image=con, strength=float(job.get("strength", 0.9)),
                num_inference_steps=steps, guidance_scale=cfg, controlnet_conditioning_scale=float(job.get("cn", 1.0)),
