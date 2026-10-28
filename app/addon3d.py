@@ -203,6 +203,7 @@ def kresba_installed() -> bool:
 def _env_k() -> dict:
     env = _env()
     env["PYTHONPATH"] = str(base_dir() / "kresba_libs")
+    env["PREKLIZKA_KRESBA_LIBS"] = str(base_dir() / "kresba_libs")    # vložený Python PYTHONPATH ignoruje (repaint.py si ji přidá)
     env["PREKLIZKA_KRESBA_MODEL"] = str(base_dir() / "kresba_model")
     return env
 
@@ -239,6 +240,30 @@ def _install_k() -> None:
 def _libs_k2() -> None:
     if not (base_dir() / "kresba_libs" / "peft").exists():
         _run(_pip() + ["--target", str(base_dir() / "kresba_libs"), "--upgrade", "--no-deps"] + LIBS_K2, "Instaluji knihovny pro postavy")
+
+
+def own_dir() -> Path:
+    return base_dir() / "vlastni_modely"
+
+
+def own_models() -> list:
+    return sorted(f.name for f in own_dir().glob("*.safetensors")) if own_dir().exists() else []
+
+
+def add_model(path: str) -> str:
+    """Vlastní model do složky vedle exe: na stejném disku jen odkaz (hard link, žádné místo navíc), jinak kopie."""
+    src = Path(path)
+    if src.suffix.lower() != ".safetensors" or not src.is_file():
+        raise RuntimeError("Vyber soubor modelu .safetensors.")
+    own_dir().mkdir(parents=True, exist_ok=True)
+    dst = own_dir() / src.name
+    if not dst.exists():
+        try:
+            os.link(src, dst)
+        except OSError:
+            shutil.copy2(src, dst.with_name(dst.name + ".part"))
+            os.replace(dst.with_name(dst.name + ".part"), dst)
+    return dst.name
 
 
 def postavy_dir() -> Path:
@@ -278,7 +303,7 @@ def _train(name: str, trigger: str, steps: int) -> None:
             _copy_app()
         job = {"data": str(d / "obrazky"), "out": str(d / "lora.safetensors"), "trigger": trigger, "steps": steps}
         (d / "ukol.json").write_text(json.dumps(job), encoding="utf-8")
-        _run([str(python()), str(app / "train_lora.py"), str(d / "ukol.json")], "Trénuji postavu " + name, _env_k())
+        _run([str(python()), "-E", "-X", "utf8", str(app / "train_lora.py"), str(d / "ukol.json")], "Trénuji postavu " + name, _env_k())
         (d / "info.json").write_text(json.dumps({"trigger": trigger}), encoding="utf-8")
         _stt.update(state="ready", step=f"Postava {name} je naučená. Vyber ji v AI kreslíři.", log="")
     except Exception as e:                                            # noqa: BLE001
@@ -332,6 +357,10 @@ def run_kresba(job: dict, img_png: bytes | None, ctrl_png: bytes | None) -> byte
             job = dict(job, lora=str(postavy_dir() / job["lora"] / "lora.safetensors"), trigger=info["trigger"])
         else:
             job = {k: v for k, v in job.items() if k != "lora"}
+    if job.get("model"):                                              # vlastní model: jen soubor ze složky vlastni_modely
+        if job["model"] not in own_models():
+            raise RuntimeError("Vlastní model nenalezen, přidej ho znovu.")
+        job = dict(job, model=str(own_dir() / job["model"]))
     mask_png = job.pop("mask_png", None)
     with tempfile.TemporaryDirectory() as td:
         t = Path(td)
@@ -346,7 +375,7 @@ def run_kresba(job: dict, img_png: bytes | None, ctrl_png: bytes | None) -> byte
             (t / "ctrl.png").write_bytes(ctrl_png)
             job["ctrl"] = str(t / "ctrl.png")
         (t / "job.json").write_text(json.dumps(job), encoding="utf-8")
-        r = subprocess.run([str(python()), str(app / "repaint.py"), str(t / "job.json")], capture_output=True, text=True,
+        r = subprocess.run([str(python()), "-E", "-X", "utf8", str(app / "repaint.py"), str(t / "job.json")], capture_output=True, text=True,
                            encoding="utf-8", errors="replace", env=_env_k(), timeout=1800, creationflags=NO_WINDOW)
         if r.returncode != 0 or not (t / "out.png").exists():
             tail = (r.stdout + "\n" + r.stderr).strip().splitlines()[-6:]

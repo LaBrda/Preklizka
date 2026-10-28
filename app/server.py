@@ -191,7 +191,23 @@ def kresba_status():
     import addon3d
     if not DESKTOP and not os.environ.get("PREKLIZKA_3D_TEST"):
         return {"available": False}
-    return dict(addon3d.kresba_status(), loras=addon3d.loras(), train=addon3d.train_status())
+    return dict(addon3d.kresba_status(), loras=addon3d.loras(), train=addon3d.train_status(), models=addon3d.own_models())
+
+
+class ModelIn(BaseModel):
+    path: str
+
+
+@app.post("/api/kresba/model")
+def kresba_model(inp: ModelIn):
+    """Přidat vlastní model (.safetensors) do složky vedle exe."""
+    import addon3d
+    if not DESKTOP and not os.environ.get("PREKLIZKA_3D_TEST"):
+        raise HTTPException(404, "Jen v Preklizka.exe.")
+    try:
+        return {"name": addon3d.add_model(inp.path), "models": addon3d.own_models()}
+    except Exception as e:
+        raise HTTPException(400, str(e))
 
 
 class TrainIn(BaseModel):

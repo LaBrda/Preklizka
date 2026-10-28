@@ -11,6 +11,10 @@ import json
 import os
 import sys
 
+# vložený Python ve Windows (soubor ._pth) ignoruje PYTHONPATH: knihovny kreslíře přidat ručně, před ostatní
+if os.environ.get("PREKLIZKA_KRESBA_LIBS"):
+    sys.path.insert(0, os.environ["PREKLIZKA_KRESBA_LIBS"])
+
 BASE = "https://github.com/LaBrda/Preklizka/releases/download/modely/"
 FILES = {
     "sd/model_index.json": "ds8-model_index.json",
