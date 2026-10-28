@@ -100,6 +100,8 @@ def needed(op: str, p: dict, gpu: bool) -> list[str]:
             out.append("lineart-anime.onnx")
         return out
     if op == "kresba":
+        if p.get("mode") == "inpaint":
+            return ["sam-encoder.onnx", "sam-decoder.onnx"]
         return ["lineart-anime.onnx"] if p.get("mode") != "new" else []
     raise ValueError("Neznámá AI funkce.")
 
@@ -951,18 +953,26 @@ def kresba(rgba: np.ndarray, p: dict) -> np.ndarray:
     job = {"mode": mode, "prompt": p.get("prompt", ""), "strength": float(p.get("strength", 0.9)),
            "w": max(256, int(W * k) // 8 * 8), "h": max(256, int(H * k) // 8 * 8),
            "steps": int(p.get("steps") or (12 if os.environ.get("PREKLIZKA_KRESBA_FAST") else 25)),
-           "seed": int(p.get("seed") or 7)}
+           "seed": int(p.get("seed") or 7), "lora": p.get("lora") or ""}
     img_png = ctrl_png = None
     if mode != "new":
         rgb = _flatten(rgba)                             # průhledné = bílá
         img_png = encode(np.dstack([rgb, np.full((H, W), 255, np.uint8)]))
+    if mode in ("draw", "sketch"):
         lines = ai_lines(rgb, 0.55 + 0.035 * float(np.clip(p.get("sens", 5), 1, 10)))
         if not (rgba[..., 3] > 127).all():
             lines &= cv2.dilate((rgba[..., 3] > 127).astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
         g = np.where(lines, 255, 0).astype(np.uint8)
         ctrl_png = encode(np.dstack([g, g, g, np.full((H, W), 255, np.uint8)]))
+    if mode == "inpaint":                                # jen vybraná část (výběr kliknutím); zbytek beze změny
+        if not p.get("points") and not p.get("box"):
+            raise ValueError("Nejdřív vyber část obrázku (Vybrat kliknutím).")
+        sel = select(rgba, p.get("points") or [], p.get("box"))[..., 3] > 127
+        sel = cv2.dilate(sel.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * max(3, W // 100) + 1,) * 2)) > 0
+        m = np.where(sel, 255, 0).astype(np.uint8)
+        job["mask_png"] = encode(np.dstack([m, m, m, np.full((H, W), 255, np.uint8)]))
     res = decode(addon3d.run_kresba(job, img_png, ctrl_png))
-    if mode == "draw":
+    if mode in ("draw", "inpaint"):
         res = cv2.resize(res, (W, H), interpolation=cv2.INTER_LANCZOS4)
         if not (rgba[..., 3] > 127).all():              # pozadí zůstane průhledné jako na vstupu
             res[..., 3] = rgba[..., 3]

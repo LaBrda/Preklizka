@@ -25,6 +25,8 @@ FILES = {
     "sd/tokenizer/vocab.json": "ds8-tok-vocab.json",
     "sd/tokenizer/special_tokens_map.json": "ds8-tok-special.json",
     "sd/tokenizer/tokenizer_config.json": "ds8-tok-config.json",
+    "sdi/unet/config.json": "ds8i-unet-config.json",
+    "sdi/unet/diffusion_pytorch_model.fp16.safetensors": "ds8i-unet.fp16.safetensors",
     "cn/config.json": "cn-lineart-config.json",
     "cn/diffusion_pytorch_model.fp16.safetensors": "cn-lineart.fp16.safetensors",
 }
@@ -66,50 +68,61 @@ def download():
 def make(job):
     import numpy as np
     import torch
-    from PIL import Image
+    from PIL import Image, ImageFilter
     from diffusers import (ControlNetModel, StableDiffusionControlNetImg2ImgPipeline, StableDiffusionControlNetPipeline,
-                           StableDiffusionPipeline, UniPCMultistepScheduler)
+                           StableDiffusionInpaintPipeline, StableDiffusionPipeline, UNet2DConditionModel, UniPCMultistepScheduler)
 
     gpu = torch.cuda.is_available()
+    dev = "cuda" if gpu else "cpu"
     dt = torch.float16 if gpu else (torch.bfloat16 if os.environ.get("PREKLIZKA_BF16") else torch.float32)
     say("STAV Počítá " + ("grafická karta " + torch.cuda.get_device_name(0) if gpu else "procesor (bez NVIDIA karty, potrvá to dlouho)"))
     d = model_dir()
-    cn = ControlNetModel.from_pretrained(os.path.join(d, "cn"), torch_dtype=dt, variant="fp16", use_safetensors=True)
-    pipe = StableDiffusionControlNetImg2ImgPipeline.from_pretrained(
-        os.path.join(d, "sd"), controlnet=cn, torch_dtype=dt, variant="fp16", use_safetensors=True,
-        safety_checker=None, feature_extractor=None, requires_safety_checker=False)
-    pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
+    mode = job.get("mode", "draw")
+    cn = None if mode in ("new", "inpaint") else ControlNetModel.from_pretrained(os.path.join(d, "cn"), torch_dtype=dt, variant="fp16", use_safetensors=True)
+    base = StableDiffusionPipeline.from_pretrained(os.path.join(d, "sd"), torch_dtype=dt, variant="fp16", use_safetensors=True,
+                                                   safety_checker=None, feature_extractor=None, requires_safety_checker=False)
+    parts = dict(base.components)
+    parts["scheduler"] = UniPCMultistepScheduler.from_config(base.scheduler.config)
+    if mode == "new":
+        pipe = StableDiffusionPipeline(**parts)
+    elif mode == "inpaint":
+        parts["unet"] = UNet2DConditionModel.from_pretrained(os.path.join(d, "sdi", "unet"), torch_dtype=dt, variant="fp16", use_safetensors=True)
+        pipe = StableDiffusionInpaintPipeline(**parts)
+    elif mode == "sketch":
+        pipe = StableDiffusionControlNetPipeline(controlnet=cn, **parts)
+    else:
+        pipe = StableDiffusionControlNetImg2ImgPipeline(controlnet=cn, **parts)
     text = (job.get("prompt") or "").strip()
+    if job.get("lora"):                                   # naučená postava: LoRA + její slovo do zadání
+        pipe.load_lora_weights(os.path.dirname(job["lora"]), weight_name=os.path.basename(job["lora"]))
+        text = job.get("trigger", "") + (", " + text if text else "")
+    pipe = pipe.to(dev)
+    pipe.set_progress_bar_config(disable=True)
     prompt = (text + ", " if text else "") + STYLE
     steps, cfg = int(job.get("steps", 25)), float(job.get("cfg", 8.0))
     g = torch.Generator(device="cpu").manual_seed(int(job.get("seed", 7)))
     w, h = int(job["w"]), int(job["h"])
-    if job.get("mode") == "new":
-        p2 = StableDiffusionPipeline(**{k: v for k, v in pipe.components.items() if k != "controlnet"})
-        p2 = p2.to("cuda" if gpu else "cpu")
-        p2.set_progress_bar_config(disable=True)
-        say("STAV AI kreslí obrázek…")
-        res = p2(prompt, negative_prompt=NEGATIVE, width=w, height=h, num_inference_steps=steps, guidance_scale=cfg, generator=g).images[0]
-        res.save(job["out"])
-        say("STAV Hotovo")
-        return
-    con = Image.open(job["ctrl"]).convert("RGB").resize((w, h), Image.LANCZOS)
-    if job.get("mode") == "sketch":                       # podle popisu: nový obrázek, obrysy fotky jen volně vedou polohu
-        p3 = StableDiffusionControlNetPipeline(**pipe.components).to("cuda" if gpu else "cpu")
-        p3.set_progress_bar_config(disable=True)
-        say("STAV AI kreslí obrázek podle popisu…")
-        res = p3(prompt, negative_prompt=NEGATIVE, image=con, width=w, height=h, num_inference_steps=steps, guidance_scale=cfg,
-                 controlnet_conditioning_scale=float(job.get("cn", 0.45)), control_guidance_end=0.6, generator=g).images[0]
-        res.save(job["out"])
-        say("STAV Hotovo")
-        return
-    pipe = pipe.to("cuda" if gpu else "cpu")
-    pipe.set_progress_bar_config(disable=True)
-    img = Image.open(job["img"]).convert("RGB").resize((w, h), Image.LANCZOS)
-    say("STAV AI překresluje obrázek…")
-    res = pipe(prompt, negative_prompt=NEGATIVE, image=img, control_image=con, strength=float(job.get("strength", 0.9)),
-               num_inference_steps=steps, guidance_scale=cfg, controlnet_conditioning_scale=float(job.get("cn", 1.0)),
-               generator=g).images[0]
+    common = dict(negative_prompt=NEGATIVE, num_inference_steps=steps, guidance_scale=cfg, generator=g)
+    say("STAV AI kreslí…")
+    if mode == "new":
+        res = pipe(prompt, width=w, height=h, **common).images[0]
+    elif mode == "inpaint":                               # jen vybraná část; zbytek obrázku zůstane beze změny
+        img = Image.open(job["img"]).convert("RGB")
+        mask = Image.open(job["mask"]).convert("L")
+        res = pipe(prompt, image=img.resize((w, h), Image.LANCZOS), mask_image=mask.resize((w, h), Image.LANCZOS),
+                   width=w, height=h, strength=0.99, **common).images[0]
+        res = res.resize(img.size, Image.LANCZOS)
+        soft = mask.filter(ImageFilter.GaussianBlur(max(2, img.size[0] // 300)))
+        res = Image.composite(res, img, soft)
+    else:
+        con = Image.open(job["ctrl"]).convert("RGB").resize((w, h), Image.LANCZOS)
+        if mode == "sketch":                              # podle popisu: obrysy fotky jen volně vedou polohu
+            res = pipe(prompt, image=con, width=w, height=h, controlnet_conditioning_scale=float(job.get("cn", 0.45)),
+                       control_guidance_end=0.6, **common).images[0]
+        else:
+            img = Image.open(job["img"]).convert("RGB").resize((w, h), Image.LANCZOS)
+            res = pipe(prompt, image=img, control_image=con, strength=float(job.get("strength", 0.9)),
+                       controlnet_conditioning_scale=float(job.get("cn", 1.0)), **common).images[0]
     res.save(job["out"])
     say("STAV Hotovo")
 

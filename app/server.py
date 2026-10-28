@@ -191,7 +191,25 @@ def kresba_status():
     import addon3d
     if not DESKTOP and not os.environ.get("PREKLIZKA_3D_TEST"):
         return {"available": False}
-    return addon3d.kresba_status()
+    return dict(addon3d.kresba_status(), loras=addon3d.loras(), train=addon3d.train_status())
+
+
+class TrainIn(BaseModel):
+    name: str
+    images: list[str]
+    steps: int = 1000
+
+
+@app.post("/api/kresba/train")
+def kresba_train(inp: TrainIn):
+    """Naučit postavu (LoRA) z obrázků; běží na pozadí, průběh v /api/kresba."""
+    import addon3d
+    if not DESKTOP and not os.environ.get("PREKLIZKA_3D_TEST"):
+        raise HTTPException(404, "Jen v Preklizka.exe.")
+    try:
+        return addon3d.start_train(inp.name, [base64.b64decode(x.split(",")[-1]) for x in inp.images], max(50, min(3000, inp.steps)))
+    except Exception as e:
+        raise HTTPException(400, str(e))
 
 
 @app.post("/api/kresba/install")

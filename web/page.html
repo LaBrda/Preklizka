@@ -186,6 +186,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
         <div class="fields">
           <div class="f"><label for="cfStr" title="Víc = víc kreslené, méně jako fotka">Síla změny <span id="cfStrV">0.9</span></label><div class="in"><input id="cfStr" type="range" min="0.4" max="1" step="0.05" value="0.9"></div></div>
           <div class="f"><label for="cfSeed" title="Stejné číslo = stejný výsledek, jiné číslo = jiná varianta">Varianta (seed)</label><div class="in"><input id="cfSeed" type="number" min="1" max="999999" value="7"></div></div>
+          <div class="f"><label for="cfLora" title="Naučená postava: kreslí se pořád stejná tvář">Postava</label><div class="in"><select id="cfLora"><option value="">žádná</option></select></div></div>
           <div class="f"><label for="cfRatio">Nový obrázek</label><div class="in"><select id="cfRatio"><option>na šířku</option><option>čtverec</option><option>na výšku</option></select></div></div>
         </div>
         <textarea id="cfText" rows="2" style="width:100%;margin-top:6px" placeholder="Co je na fotce (anglicky funguje nejlíp), např. yellow wheeled excavator, dark grey arm with bucket, dozer blade"></textarea>
@@ -193,7 +194,18 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
           <button class="btn primary aib" id="cfDraw" type="button">Překreslit obrázek</button>
           <button class="btn aib" id="cfSketch" type="button" title="Nový kreslený obrázek podle popisu, fotka jen volně vede polohu">Nakreslit podle popisu</button>
           <button class="btn aib" id="cfNew" type="button">Nový obrázek z textu</button>
+          <button class="btn aib" id="cfInpaint" type="button" title="Nejdřív Vybrat kliknutím označ část, pak napiš, co s ní">Překreslit vybranou část</button>
         </div>
+        <details style="margin-top:8px"><summary>Naučit postavu (LoRA)</summary>
+          <p class="hint">Vyber 15–30 obrázků jedné postavy (různé pózy a úhly). Trénink na grafické kartě trvá asi 20–40 minut. Pak postavu vybereš nahoře v poli Postava.</p>
+          <div class="fields">
+            <div class="f"><label for="ltName">Jméno postavy</label><div class="in"><input id="ltName" type="text" placeholder="např. Lucka"></div></div>
+            <div class="f"><label for="ltSteps">Délka tréninku</label><div class="in"><select id="ltSteps"><option value="600">rychlý</option><option value="1200" selected>normální</option><option value="2000">důkladný</option></select></div></div>
+          </div>
+          <input id="ltFiles" type="file" accept="image/*" multiple>
+          <div class="dl"><button class="btn" id="ltGo" type="button">Natrénovat postavu</button></div>
+          <p class="hint" id="ltSt"></p>
+        </details>
       </div>
       <h3>Úpravy obrázku (kreslený vzhled)</h3>
       <div class="fields">
@@ -971,12 +983,33 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     else if (st.state === "error") $("cfSt").textContent = st.step + " Zkus to znovu.";
     else $("cfSt").textContent = `AI kreslíř překreslí fotku (bagr, auto…) do kreslené podoby jako animovaný obrázek. Potřebuje jednorázovou instalaci (${st.size}, do složky Preklizka_3D vedle exe).`;
     if (st.state === "error") $("cfInstall").hidden = false;
+    const cur = $("cfLora").value;
+    $("cfLora").innerHTML = '<option value="">žádná</option>' + (st.loras || []).map((l) => `<option value="${l.name}">${l.name}</option>`).join("");
+    if ((st.loras || []).some((l) => l.name === cur)) $("cfLora").value = cur;
+    const tr = st.train || {};
+    $("ltSt").textContent = tr.state === "training" ? "Trénuji: " + tr.step + (tr.log ? " – " + tr.log : "") : tr.state === "error" || tr.state === "ready" ? tr.step : "";
+    $("ltGo").disabled = tr.state === "training";
     clearTimeout(cfTimer);
-    if (st.state === "installing") cfTimer = setTimeout(cfRefresh, 1500);
+    if (st.state === "installing" || tr.state === "training") cfTimer = setTimeout(cfRefresh, 2000);
   }
   $("cfInstall").onclick = async () => { await fetch("api/kresba/install", { method: "POST" }); cfRefresh(); };
   $("cfStr").oninput = () => ($("cfStrV").textContent = $("cfStr").value);
-  const cfParams = (mode) => ({ mode, prompt: $("cfText").value, strength: +$("cfStr").value, ratio: $("cfRatio").value, sens: +$("aiSens").value, seed: +$("cfSeed").value || 7 });
+  const cfParams = (mode) => ({ mode, prompt: $("cfText").value, strength: +$("cfStr").value, ratio: $("cfRatio").value, sens: +$("aiSens").value, seed: +$("cfSeed").value || 7, lora: $("cfLora").value });
+  $("cfInpaint").onclick = () => {
+    if (!aiBase || (!aiPts.length && !aiBox)) { $("msg").textContent = "Nejdřív tlačítkem Vybrat kliknutím označ část, kterou chceš překreslit."; return; }
+    if (!$("cfText").value.trim()) { $("msg").textContent = "Napiš do pole, co s vybranou částí (anglicky), např. red cab."; return; }
+    aiDo("kresba", Object.assign(cfParams("inpaint"), { points: aiPts, box: aiBox }), "AI překresluje vybranou část", "upraveno", "Hotovo, zbytek obrázku zůstal beze změny.", aiBase);
+  };
+  $("ltGo").onclick = async () => {
+    const files = [...$("ltFiles").files];
+    if (!$("ltName").value.trim()) { $("ltSt").textContent = "Napiš jméno postavy."; return; }
+    if (files.length < 5) { $("ltSt").textContent = "Vyber aspoň 5 obrázků (nejlépe 15–30)."; return; }
+    $("ltSt").textContent = "Nahrávám obrázky…";
+    const imgs = await Promise.all(files.map((f) => new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(f); })));
+    const r = await fetch("api/kresba/train", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: $("ltName").value.trim(), images: imgs, steps: +$("ltSteps").value }) });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); $("ltSt").textContent = j.detail || "Nepovedlo se spustit trénink."; return; }
+    cfRefresh();
+  };
   $("cfSketch").onclick = () => { if (!$("cfText").value.trim()) { $("msg").textContent = "Napiš do pole, co je na fotce (anglicky), např. yellow wheeled excavator with dozer blade."; return; }
     aiDo("kresba", cfParams("sketch"), "AI kreslí obrázek podle popisu", "nakresleno", "Hotovo. Pozadí odstraníš tlačítkem Pozadí pryč (kreslený), pak vrstvy."); };
   $("cfDraw").onclick = () => aiDo("kresba", cfParams("draw"), "AI překresluje obrázek", "překresleno", "Hotovo. Teď rovnou vrstvy, případně Úpravy obrázku.");

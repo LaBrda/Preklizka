@@ -3,7 +3,7 @@ name: AI kreslíř (test instalace)
 on:
   push:
     branches: [main]
-    paths: [app/addon3d.py, addon3d/repaint.py, .github/workflows/kresba.yml]
+    paths: [app/addon3d.py, addon3d/repaint.py, addon3d/train_lora.py, .github/workflows/kresba.yml]
   workflow_dispatch:
 
 jobs:
@@ -45,6 +45,25 @@ jobs:
                   o = Image.open(io.BytesIO(out)); px = list(o.convert("RGB").resize((8, 8)).getdata())
                   msg = f"{mode}: {o.size} za {round(time.time() - t)} s, barvy {px[27]} {px[36]}"
                   print("::notice title=Kreslíř::" + msg)
+              # překreslení vybrané části (maska jako PNG)
+              mk = Image.new("RGB", (320, 192), "black"); ImageDraw.Draw(mk).rectangle((30, 60, 160, 140), fill="white")
+              b3 = io.BytesIO(); mk.save(b3, "PNG")
+              t = time.time()
+              out = addon3d.run_kresba({"mode": "inpaint", "prompt": "blue door", "w": 320, "h": 192, "steps": 4, "mask_png": b3.getvalue()}, b1.getvalue(), None)
+              print("::notice title=Kreslíř::inpaint " + str(Image.open(io.BytesIO(out)).size) + f" za {round(time.time() - t)} s")
+              # naučit postavu (pár kroků) a použít ji
+              import random
+              pics = []
+              for i in range(5):
+                  p = Image.new("RGB", (256, 256), "white"); q = ImageDraw.Draw(p)
+                  q.ellipse((60 + i * 5, 40, 196 + i * 5, 176), fill=(255, 200, 150), outline="black", width=4); q.ellipse((100, 90, 115, 105), fill="black")
+                  bb = io.BytesIO(); p.save(bb, "PNG"); pics.append(bb.getvalue())
+              addon3d.start_train("Testovací Postava", pics, 3)
+              while addon3d.train_status()["state"] == "training": time.sleep(2)
+              st = addon3d.train_status(); print("::notice title=Postava::" + json.dumps(st, ensure_ascii=False))
+              if st["state"] != "ready": raise RuntimeError(st["step"])
+              out = addon3d.run_kresba({"mode": "new", "prompt": "smiling", "w": 256, "h": 256, "steps": 4, "lora": addon3d.loras()[0]["name"]}, None, None)
+              print("::notice title=Postava::nový obrázek s postavou " + str(Image.open(io.BytesIO(out)).size) + " " + json.dumps(addon3d.loras()))
           except BaseException as e:
               print("::error title=Chyba::" + (repr(e) + " " + traceback.format_exc()).replace("\n", " | ")[-3500:]); sys.exit(1)
           PY

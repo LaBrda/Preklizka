@@ -23,6 +23,7 @@ LIBS = ["numpy<2", "omegaconf==2.3.0", "einops==0.7.0", "transformers==4.35.0", 
 # AI kreslíř: vlastní složka knihoven (3D potřebuje staré transformers, kreslíř nové); Python a PyTorch sdílí
 LIBS_K = ["diffusers==0.30.3", "transformers==4.44.2", "huggingface-hub==0.24.6", "safetensors==0.4.5",
           "tokenizers==0.19.1", "numpy<2", "Pillow==10.4.0"]
+LIBS_K2 = ["peft==0.12.0", "accelerate==0.33.0", "psutil", "pyyaml"]   # LoRA; bez závislostí (jinak by táhly další PyTorch)
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 _st = {"state": "none", "step": "", "log": "", "gpu": None}
@@ -218,12 +219,84 @@ def _install_k() -> None:
         (base_dir() / "kresba.txt").unlink(missing_ok=True)
         _runtime(5)
         _run(_pip() + ["--target", str(base_dir() / "kresba_libs"), "--upgrade"] + LIBS_K, "4/5 Instaluji knihovny kreslíře")
+        _libs_k2()
         _copy_app()
         _models("repaint.py", base_dir() / "kresba_model", "5/5 Stahuji model kreslíře (asi 2,9 GB)")
         (base_dir() / "kresba.txt").write_text("ok")
         _stk.update(state="ready", step="AI kreslíř je nainstalovaný.", log="")
     except Exception as e:                                            # noqa: BLE001
         _stk.update(state="error", step=f"Instalace se nepovedla: {e}")
+
+
+def _libs_k2() -> None:
+    if not (base_dir() / "kresba_libs" / "peft").exists():
+        _run(_pip() + ["--target", str(base_dir() / "kresba_libs"), "--upgrade", "--no-deps"] + LIBS_K2, "Instaluji knihovny pro postavy")
+
+
+def postavy_dir() -> Path:
+    return base_dir() / "postavy"
+
+
+def loras() -> list:
+    """Naučené postavy: [{name, trigger}]."""
+    import json
+    out = []
+    for f in sorted(postavy_dir().glob("*/info.json")):
+        try:
+            info = json.loads(f.read_text(encoding="utf-8"))
+            if (f.parent / "lora.safetensors").exists():
+                out.append({"name": f.parent.name, "trigger": info.get("trigger", "")})
+        except Exception:                                             # noqa: BLE001
+            pass
+    return out
+
+
+_stt = {"state": "none", "step": "", "log": "", "name": ""}
+
+
+def train_status() -> dict:
+    return dict(_stt)
+
+
+def _train(name: str, trigger: str, steps: int) -> None:
+    import json
+    global _cur
+    _cur = _stt
+    try:
+        _libs_k2()
+        d = postavy_dir() / name
+        app = base_dir() / "app"
+        if not (app / "train_lora.py").exists() or (src_dir() / "train_lora.py").read_bytes() != (app / "train_lora.py").read_bytes():
+            _copy_app()
+        job = {"data": str(d / "obrazky"), "out": str(d / "lora.safetensors"), "trigger": trigger, "steps": steps}
+        (d / "ukol.json").write_text(json.dumps(job), encoding="utf-8")
+        _run([str(python()), str(app / "train_lora.py"), str(d / "ukol.json")], "Trénuji postavu " + name, _env_k())
+        (d / "info.json").write_text(json.dumps({"trigger": trigger}), encoding="utf-8")
+        _stt.update(state="ready", step=f"Postava {name} je naučená. Vyber ji v AI kreslíři.", log="")
+    except Exception as e:                                            # noqa: BLE001
+        _stt.update(state="error", step=f"Trénink se nepovedl: {e}")
+
+
+def start_train(name: str, images: list, steps: int = 1000) -> dict:
+    """images: obrázky postavy (PNG/JPG bajty). Slovo postavy = jméno bez diakritiky (model ho pak pozná v zadání)."""
+    import re
+    import unicodedata
+    if not kresba_installed():
+        raise RuntimeError("Nejdřív nainstaluj AI kreslíře.")
+    slug = re.sub(r"[^a-z0-9]+", "", unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower())[:20] or "postava"
+    if len(images) < 5:
+        raise RuntimeError("Dej aspoň 5 obrázků postavy (nejlépe 15–30).")
+    with _lock:
+        if _stt["state"] == "training":
+            return train_status()
+        d = postavy_dir() / slug
+        shutil.rmtree(d, ignore_errors=True)
+        (d / "obrazky").mkdir(parents=True)
+        for i, b in enumerate(images):
+            (d / "obrazky" / f"{i:03d}.png").write_bytes(b)
+        _stt.update(state="training", step="Začínám…", log="", name=slug)
+        threading.Thread(target=_train, args=(slug, "zx" + slug, int(steps)), daemon=True).start()
+    return train_status()
 
 
 def start_install_k() -> dict:
@@ -244,9 +317,20 @@ def run_kresba(job: dict, img_png: bytes | None, ctrl_png: bytes | None) -> byte
             (src_dir() / "repaint.py").read_bytes() != (app / "repaint.py").read_bytes():
         _copy_app()
     import json
+    if job.get("lora"):                                               # jméno postavy -> soubor a slovo
+        info = {x["name"]: x for x in loras()}.get(job["lora"])
+        if info:
+            _libs_k2()
+            job = dict(job, lora=str(postavy_dir() / job["lora"] / "lora.safetensors"), trigger=info["trigger"])
+        else:
+            job = {k: v for k, v in job.items() if k != "lora"}
+    mask_png = job.pop("mask_png", None)
     with tempfile.TemporaryDirectory() as td:
         t = Path(td)
         job = dict(job, out=str(t / "out.png"))
+        if mask_png:
+            (t / "mask.png").write_bytes(mask_png)
+            job["mask"] = str(t / "mask.png")
         if img_png:
             (t / "img.png").write_bytes(img_png)
             job["img"] = str(t / "img.png")
