@@ -37,6 +37,8 @@ jobs:
             models_out/*.json
             models_out/*.safetensors
             models_out/*.txt
+            models_out/*.bin
+            models_out/*.spm
           body: |
             Modely, které si appka sama stáhne při prvním použití AI funkce. Ručně je stahovat netřeba.
             Zdroje: Real-ESRGAN (xinntao), AnimeGANv2 (bryandlee/animegan2-pytorch), IS-Net a SAM (rembg), TripoSR,

@@ -62,6 +62,9 @@ MIRROR.update({
         "scheduler/scheduler_config.json", "tokenizer/merges.txt", "tokenizer/vocab.json", "tokenizer/special_tokens_map.json",
         "tokenizer/tokenizer_config.json", "tokenizer_2/merges.txt", "tokenizer_2/vocab.json", "tokenizer_2/special_tokens_map.json",
         "tokenizer_2/tokenizer_config.json")},
+    # překlad zadání čeština -> angličtina (Helsinki-NLP opus-mt-cs-en, Apache 2.0)
+    **{"mt-csen-" + k: "https://huggingface.co/Helsinki-NLP/opus-mt-cs-en/resolve/main/" + k for k in (
+        "config.json", "generation_config.json", "pytorch_model.bin", "source.spm", "target.spm", "vocab.json", "tokenizer_config.json")},
     "cn-lineart-config.json": [CN + "main/config.json", CN + "refs%2Fpr%2F3/config.json"],
     "cn-lineart.fp16.safetensors": [CN + "main/diffusion_pytorch_model.fp16.safetensors",
                                     CN + "refs%2Fpr%2F3/diffusion_pytorch_model.fp16.safetensors"],
