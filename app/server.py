@@ -186,6 +186,13 @@ def addon3d_run(inp: Addon3dIn):
             raise HTTPException(500, str(e))
 
 
+@app.get("/api/comfy")
+def comfy_status(url: str = ""):
+    """Je ComfyUI uživatele dostupné a jaké má modely (AI kreslíř)."""
+    import comfy
+    return comfy.status(url or None)
+
+
 @app.get("/api/commons")
 def commons_search(q: str):
     """Fotky z Wikimedia Commons pro 3D režim (pohledy auta); jen Preklizka.exe."""

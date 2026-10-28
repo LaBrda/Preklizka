@@ -99,6 +99,8 @@ def needed(op: str, p: dict, gpu: bool) -> list[str]:
         if st == "flatai" or p.get("lineMode") == "ai":
             out.append("lineart-anime.onnx")
         return out
+    if op == "comfy":
+        return ["lineart-anime.onnx"] if p.get("cn") and p.get("mode") != "new" else []
     raise ValueError("Neznámá AI funkce.")
 
 
@@ -928,6 +930,44 @@ def run(op: str, png: bytes, p: dict) -> bytes:
         res = cartoon(img, p.get("style", "portret"), int(p.get("colors", 8)), bool(p.get("lines", True)), int(p.get("detail", 5)),
                       p.get("smooth"), p.get("lineMode"), float(p.get("sens", 5)), float(p.get("width", 3)),
                       float(p.get("shades", 0)), bool(p.get("wheels", False)), bool(p.get("straight", False)))
+    elif op == "comfy":
+        res = comfy_draw(img, p)
     else:
         raise ValueError("Neznámá AI funkce.")
     return encode(res)
+
+
+def comfy_draw(rgba: np.ndarray, p: dict) -> np.ndarray:
+    """Překreslení / úprava / nový obrázek přes ComfyUI uživatele. Obrysy z AI kresby drží tvar (ControlNet)."""
+    import cv2
+    import comfy
+    mode = p.get("mode", "draw")
+    ckpt, cn = p.get("ckpt") or "", p.get("cn") or None
+    if not ckpt:
+        raise ValueError("V ComfyUI vyber model.")
+    text = (p.get("prompt") or "").strip()
+    prompt = (text + ", " if text else "") + comfy.PROMPT
+    H, W = rgba.shape[:2]
+    if mode == "new":
+        r = {"na šířku": (3, 2), "na výšku": (2, 3)}.get(p.get("ratio"), (1, 1))
+        W, H = 1000 * r[0], 1000 * r[1]
+    if os.environ.get("PREKLIZKA_COMFY_FAST"):           # jen test na procesoru: menší a rychlejší
+        p = dict(p, side=512, steps=12)
+    size = comfy.size_for(W, H, comfy.is_xl(ckpt), p.get("side"))
+    img_png = ctrl_png = None
+    if mode != "new":
+        rgb = _flatten(rgba)                             # průhledné = bílá
+        img_png = comfy.to_png(rgb)
+        if cn:
+            lines = ai_lines(rgb, 0.55 + 0.035 * float(np.clip(p.get("sens", 5), 1, 10)))
+            if not (rgba[..., 3] > 127).all():
+                lines &= cv2.dilate((rgba[..., 3] > 127).astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+            ctrl_png = comfy.to_png(np.where(lines, 255, 0).astype(np.uint8))
+    out = comfy.run(p.get("url"), "new" if mode == "new" else "img", ckpt, cn, img_png, ctrl_png, prompt,
+                    (p.get("negative") or comfy.NEGATIVE), size, float(p.get("strength", 0.75)),
+                    int(p.get("steps", 25)), float(p.get("cfg", 7.0)), p.get("seed"))
+    res = decode(out)
+    if mode == "draw" and not (rgba[..., 3] > 127).all():   # překreslení: pozadí zůstane průhledné jako na vstupu
+        res = cv2.resize(res, (rgba.shape[1], rgba.shape[0]), interpolation=cv2.INTER_LANCZOS4)
+        res[..., 3] = rgba[..., 3]
+    return res
