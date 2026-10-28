@@ -54,6 +54,8 @@ MIRROR.update({
     "ds8-tok-vocab.json": DS + "tokenizer/vocab.json",
     "ds8-tok-special.json": DS + "tokenizer/special_tokens_map.json",
     "ds8-tok-config.json": DS + "tokenizer/tokenizer_config.json",
+    "ds8i-unet-config.json": "https://huggingface.co/Lykon/dreamshaper-8-inpainting/resolve/main/unet/config.json",
+    "ds8i-unet.fp16.safetensors": "https://huggingface.co/Lykon/dreamshaper-8-inpainting/resolve/main/unet/diffusion_pytorch_model.fp16.safetensors",
     "cn-lineart-config.json": [CN + "main/config.json", CN + "refs%2Fpr%2F3/config.json"],
     "cn-lineart.fp16.safetensors": [CN + "main/diffusion_pytorch_model.fp16.safetensors",
                                     CN + "refs%2Fpr%2F3/diffusion_pytorch_model.fp16.safetensors"],
