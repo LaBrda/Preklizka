@@ -192,6 +192,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
           <div class="f"><label for="cfRatio">Nový obrázek</label><div class="in"><select id="cfRatio"><option>na šířku</option><option>čtverec</option><option>na výšku</option></select></div></div>
         </div>
         <p class="hint" id="cfModelPath" hidden></p>
+        <p class="hint" id="cfRun" hidden style="color:var(--cyan)"></p>
         <textarea id="cfText" rows="2" style="width:100%;margin-top:6px" placeholder="Co je na fotce (anglicky funguje nejlíp), např. yellow wheeled excavator, dark grey arm with bucket, dozer blade"></textarea>
         <div class="dl">
           <button class="btn primary aib" id="cfDraw" type="button">Překreslit obrázek</button>
@@ -957,6 +958,9 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     if (op !== "cartoon") cartBase = null;
     aiBusy = true; document.querySelectorAll(".aib").forEach((b) => (b.disabled = true)); busy(true);
     const t0 = Date.now();
+    const kr = op === "kresba", tick = kr ? setInterval(() => { $("cfRun").textContent = `${what}… ${Math.round((Date.now() - t0) / 1000)} s` +
+      (params.model ? " (vlastní model se poprvé načítá i 1–2 minuty)" : ""); }, 1000) : 0;
+    if (kr) { $("cfRun").hidden = false; $("cfRun").textContent = what + "…"; }
     try {
       const base = baseOverride || (op === "select" ? aiBase : src);
       const im = await aiCall(op, params, base, what);
@@ -968,7 +972,9 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       if (op === "cartoon") src.exact = true;            // barvy už jsou hotové, vrstvy je nemají znovu slučovat
       $("aiUndo").hidden = false; $("vOrig").hidden = false;
       pendingMsg = done + " (" + ((Date.now() - t0) / 1000).toFixed(1) + " s)";
-    } catch (e) { console.error(e); $("msg").textContent = "AI: " + e.message; busy(false); }
+      if (kr) $("cfRun").textContent = pendingMsg;
+    } catch (e) { console.error(e); $("msg").textContent = "AI: " + e.message; busy(false); if (kr) $("cfRun").textContent = "Chyba: " + e.message; }
+    clearInterval(tick);
     aiBusy = false; document.querySelectorAll(".aib").forEach((b) => (b.disabled = false));
   }
   let aiKeep = false;
@@ -1110,6 +1116,9 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     if (!src || aiBusy) return;
     aiBusy = true; document.querySelectorAll(".aib").forEach((b) => (b.disabled = true)); busy(true);
     const t0 = Date.now();
+    const kr = op === "kresba", tick = kr ? setInterval(() => { $("cfRun").textContent = `${what}… ${Math.round((Date.now() - t0) / 1000)} s` +
+      (params.model ? " (vlastní model se poprvé načítá i 1–2 minuty)" : ""); }, 1000) : 0;
+    if (kr) { $("cfRun").hidden = false; $("cfRun").textContent = what + "…"; }
     try {
       const post = (u, b) => fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
       const params = { kind: $("aiCutKind").value, soft: true };
