@@ -626,7 +626,7 @@ def _is_photo(rgba: np.ndarray) -> bool:
 
 
 def cartoon(rgba: np.ndarray, style: str = "portret", colors: int = 8, lines: bool = True, detail: int = 5,
-            smooth=None, line_mode=None, sens: float = 5, width: float = 3, shades: float = 0, wheels: bool = True, straight: bool = True) -> np.ndarray:
+            smooth=None, line_mode=None, sens: float = 5, width: float = 3, shades: float = 0, wheels: bool = False, straight: bool = False) -> np.ndarray:
     """Kroky: (1) kreslený styl AnimeGAN, (2) vyhlazení lesků (L0, síla 0–10), (3) barvy a dílky, (4) obrysy (žádné / z ploch / AI kresba)."""
     import cv2
     from scipy import ndimage as ndi
@@ -927,7 +927,7 @@ def run(op: str, png: bytes, p: dict) -> bytes:
     elif op == "cartoon":
         res = cartoon(img, p.get("style", "portret"), int(p.get("colors", 8)), bool(p.get("lines", True)), int(p.get("detail", 5)),
                       p.get("smooth"), p.get("lineMode"), float(p.get("sens", 5)), float(p.get("width", 3)),
-                      float(p.get("shades", 0)), bool(p.get("wheels", True)), bool(p.get("straight", True)))
+                      float(p.get("shades", 0)), bool(p.get("wheels", False)), bool(p.get("straight", False)))
     else:
         raise ValueError("Neznámá AI funkce.")
     return encode(res)

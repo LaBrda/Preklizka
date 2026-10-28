@@ -190,6 +190,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
         <div class="f"><label for="aiShades">Obličej <span id="aiShadesV">0</span> <small style="color:var(--muted)">0 = kreslené, &gt;0 = fotka</small></label><div class="in"><input id="aiShades" class="cartp" type="range" min="0" max="10" value="0" title="0 = kreslený obrázek nebo auto (odstíny jedné barvy se sloučí). Víc = fotka člověka: detail obličeje a stíny na kůži a oblečení." style="accent-color:var(--accent)"></div></div>
         <div class="f"><label for="aiWidth">Tloušťka čar <span id="aiWidthV">3</span></label><div class="in"><input id="aiWidth" class="cartp" type="range" min="1" max="5" value="3" style="accent-color:var(--accent)"></div></div>
       </div>
+      <label class="check" title="Jen pro fotku auta přesně z boku: obrys a díly rovnými čarami, kola jako čisté kruhy, texty pryč."><input type="checkbox" id="aiSide" class="cartp"> Auto z boku (rovné hrany, kola jako kruhy)</label>
       <div class="dl">
         <button class="btn primary aib" id="aiCart" type="button">Použít</button>
         <button class="btn" id="aiUndo" type="button" hidden>Vrátit originál</button>
@@ -946,7 +947,8 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   // úpravy obrázku: vždy z téhož výchozího obrázku (cartBase), změny posuvníků se samy přepočítají
   let cartBase = null, cartTimer = 0, cartAgain = false;
   const cartParams = () => ({ style: $("aiStyle").value, smooth: +$("aiSmooth").value, colors: +$("aiColors").value || 8, detail: +$("aiDetail").value,
-    lineMode: $("aiLineMode").value, sens: +$("aiSens").value, width: +$("aiWidth").value, shades: +$("aiShades").value });
+    lineMode: $("aiLineMode").value, sens: +$("aiSens").value, width: +$("aiWidth").value, shades: +$("aiShades").value,
+    straight: $("aiSide").checked, wheels: $("aiSide").checked });
   async function cartRun() {
     if (!src) return;
     if (aiBusy) { cartAgain = true; return; }
