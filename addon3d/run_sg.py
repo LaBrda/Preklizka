@@ -60,7 +60,7 @@ def make(inp, out, steps=50, seed=42):
     import torch
     import trimesh
     from triposg.pipelines.pipeline_triposg import TripoSGPipeline
-    from run3d import largest_part
+    from run3d import align, largest_part
 
     gpu = torch.cuda.is_available()
     dev = "cuda" if gpu else "cpu"
@@ -72,10 +72,13 @@ def make(inp, out, steps=50, seed=42):
     with torch.no_grad():
         res = pipe(image=img, generator=torch.Generator(device=dev).manual_seed(int(seed)), num_inference_steps=int(steps),
                    guidance_scale=7.0, use_flash_decoder=False,
-                   dense_octree_depth=7 if os.environ.get("PREKLIZKA_SG_FAST") else 8 if gpu else 8,
+                   dense_octree_depth=7 if os.environ.get("PREKLIZKA_SG_FAST") else 8,
                    hierarchical_octree_depth=7 if os.environ.get("PREKLIZKA_SG_FAST") else (9 if gpu else 8)).samples[0]   # bez grafiky: jemnější skládání jen na GPU
     mesh = trimesh.Trimesh(res[0].astype(np.float32), np.ascontiguousarray(res[1]))
     mesh = largest_part(mesh)
+    # TripoSG fotí z +Z (nahoru Y); appka čeká natočení jako u TripoSR (fotí z +X), pak stejné srovnání os a postavení na kola
+    mesh.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [0, 1, 0]))
+    mesh = align(mesh)
     mesh.export(out)
     say(f"STAV Hotovo: {len(mesh.faces)} trojúhelníků")
 
