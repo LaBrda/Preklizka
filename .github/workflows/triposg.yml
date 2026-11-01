@@ -1,0 +1,31 @@
+name: Zrcadlo TripoSG
+
+on:
+  push:
+    branches: [main]
+    paths: [tools/mirror_triposg.py, .github/workflows/triposg.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Stáhnout a převést
+        run: |
+          pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install huggingface_hub safetensors numpy
+          python tools/mirror_triposg.py
+          ls -la sg_out
+      - name: Vydat (release modely)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: modely
+          prerelease: true
+          make_latest: false
+          files: sg_out/*
