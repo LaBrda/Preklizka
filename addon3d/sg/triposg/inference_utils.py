@@ -101,7 +101,8 @@ def find_candidates_band(occupancy_grid: torch.Tensor, band_threshold: float, n_
     return core_mesh_coords 
 
 def expand_edge_region_fast(edge_coords, grid_size):
-    expanded_tensor = torch.zeros(grid_size, grid_size, grid_size, device='cuda', dtype=torch.float16, requires_grad=False)
+    dev = edge_coords.device if torch.is_tensor(edge_coords) else 'cpu'   # původně napevno 'cuda'
+    expanded_tensor = torch.zeros(grid_size, grid_size, grid_size, device=dev, dtype=torch.float16 if dev != 'cpu' else torch.float32, requires_grad=False)
     expanded_tensor[edge_coords[:, 0], edge_coords[:, 1], edge_coords[:, 2]] = 1
     if grid_size < 512:
         kernel_size = 5
