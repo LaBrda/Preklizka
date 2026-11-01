@@ -26,7 +26,7 @@ LIBS_K = ["diffusers==0.30.3", "transformers==4.44.2", "huggingface-hub==0.24.6"
 LIBS_K2 = ["peft==0.12.0", "accelerate==0.33.0", "psutil", "pyyaml", "sentencepiece==0.2.0"]   # LoRA; bez závislostí (jinak by táhly další PyTorch)
 # TripoSG (přesnější 3D z fotky): vlastní složka knihoven (potřebuje nové diffusers/transformers jako kreslíř)
 LIBS_SG = ["diffusers==0.30.3", "transformers==4.44.2", "huggingface-hub==0.24.6", "safetensors==0.4.5", "tokenizers==0.19.1",
-           "einops==0.7.0", "jaxtyping==0.2.34", "typeguard==4.3.0", "omegaconf==2.3.0", "scikit-image==0.24.0",
+           "einops==0.7.0", "jaxtyping==0.2.34", "typeguard==2.13.3", "omegaconf==2.3.0", "scikit-image==0.24.0",
            "trimesh==4.0.5", "numpy<2", "Pillow==10.4.0", "scipy<1.15"]
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
