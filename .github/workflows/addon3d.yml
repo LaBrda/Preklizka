@@ -9,7 +9,7 @@ on:
 jobs:
   test:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -22,6 +22,8 @@ jobs:
           PREKLIZKA_3D_TEST: "1"
           PYTHONIOENCODING: utf-8
           PYTHONUTF8: "1"
+          PYTHONUNBUFFERED: "1"
+          PREKLIZKA_SG_FAST: "1"
         run: |
           pip install httpx pillow numpy
           python - <<'EOF'

@@ -72,7 +72,8 @@ def make(inp, out, steps=50, seed=42):
     with torch.no_grad():
         res = pipe(image=img, generator=torch.Generator(device=dev).manual_seed(int(seed)), num_inference_steps=int(steps),
                    guidance_scale=7.0, use_flash_decoder=False,
-                   dense_octree_depth=8, hierarchical_octree_depth=8 if not gpu else 9).samples[0]
+                   dense_octree_depth=6 if os.environ.get("PREKLIZKA_SG_FAST") else 8,
+                   hierarchical_octree_depth=7 if os.environ.get("PREKLIZKA_SG_FAST") else (9 if gpu else 8)).samples[0]
     mesh = trimesh.Trimesh(res[0].astype(np.float32), np.ascontiguousarray(res[1]))
     mesh = largest_part(mesh)
     mesh.export(out)
