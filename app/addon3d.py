@@ -24,6 +24,10 @@ LIBS = ["numpy<2", "omegaconf==2.3.0", "einops==0.7.0", "transformers==4.35.0", 
 LIBS_K = ["diffusers==0.30.3", "transformers==4.44.2", "huggingface-hub==0.24.6", "safetensors==0.4.5",
           "tokenizers==0.19.1", "numpy<2", "Pillow==10.4.0"]
 LIBS_K2 = ["peft==0.12.0", "accelerate==0.33.0", "psutil", "pyyaml", "sentencepiece==0.2.0"]   # LoRA; bez závislostí (jinak by táhly další PyTorch)
+# TripoSG (přesnější 3D z fotky): vlastní složka knihoven (potřebuje nové diffusers/transformers jako kreslíř)
+LIBS_SG = ["diffusers==0.30.3", "transformers==4.44.2", "huggingface-hub==0.24.6", "safetensors==0.4.5", "tokenizers==0.19.1",
+           "einops==0.7.0", "jaxtyping==0.2.34", "typeguard==4.3.0", "omegaconf==2.3.0", "scikit-image==0.24.0",
+           "trimesh==4.0.5", "numpy<2", "Pillow==10.4.0", "scipy<1.15"]
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 _st = {"state": "none", "step": "", "log": "", "gpu": None}
@@ -186,6 +190,72 @@ def _install() -> None:
         _st.update(state="ready", step="Doplněk je nainstalovaný.", log="")
     except Exception as e:                                            # noqa: BLE001
         _st.update(state="error", step=f"Instalace se nepovedla: {e}")
+
+
+# ---------------- TripoSG (přesnější AI 3D z fotky) ----------------
+_sts = {"state": "none", "step": "", "log": ""}
+
+
+def sg_installed() -> bool:
+    return (base_dir() / "sg.txt").exists() and python().exists() and (base_dir() / "sg_model" / "transformer" / "config.json").exists()
+
+
+def sg_status() -> dict:
+    s = dict(_sts)
+    if sg_installed() and s["state"] != "installing":
+        s["state"] = "ready"
+    return s
+
+
+def _install_sg() -> None:
+    global _cur
+    _cur = _sts
+    try:
+        (base_dir() / "sg.txt").unlink(missing_ok=True)
+        _runtime(5)
+        _run(_pip() + ["--target", str(base_dir() / "sg_libs"), "--upgrade"] + LIBS_SG, "4/5 Instaluji knihovny TripoSG")
+        _run(_pip() + ["--target", str(base_dir() / "sg_libs"), "--upgrade", "--no-deps", "accelerate==0.33.0", "psutil", "pyyaml"],
+             "4/5 Instaluji knihovny TripoSG")                 # bez závislostí, jinak by táhla další PyTorch
+        _copy_app()
+        _models("run_sg.py", base_dir() / "sg_model", "5/5 Stahuji model TripoSG (asi 5 GB)")
+        (base_dir() / "sg.txt").write_text("ok")
+        _sts.update(state="ready", step="TripoSG je nainstalovaný.", log="")
+    except Exception as e:                                            # noqa: BLE001
+        _sts.update(state="error", step=f"Instalace TripoSG se nepovedla: {e}")
+
+
+def start_install_sg() -> dict:
+    with _lock:
+        if _sts["state"] == "installing":
+            return sg_status()
+        _sts.update(state="installing", step="Začínám…", log="")
+        threading.Thread(target=_install_sg, daemon=True).start()
+    return sg_status()
+
+
+def _env_sg() -> dict:
+    env = _env()
+    env["PREKLIZKA_SG_LIBS"] = str(base_dir() / "sg_libs")
+    env["PREKLIZKA_SG_MODEL"] = str(base_dir() / "sg_model")
+    return env
+
+
+def run_sg(png: bytes, steps: int = 50) -> bytes:
+    if not sg_installed():
+        raise RuntimeError("TripoSG není nainstalovaný.")
+    app = base_dir() / "app"
+    if not (app / "run_sg.py").exists() or (src_dir() / "run_sg.py").read_bytes() != (app / "run_sg.py").read_bytes():
+        _copy_app()
+    with tempfile.TemporaryDirectory() as td:
+        inp, out = Path(td) / "in.png", Path(td) / "out.glb"
+        inp.write_bytes(png)
+        r = subprocess.run([str(python()), "-E", "-X", "utf8", str(app / "run_sg.py"), str(inp), str(out), str(steps)],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", env=_env_sg(), timeout=3600,
+                           creationflags=NO_WINDOW)
+        if r.returncode != 0 or not out.exists():
+            tail = (r.stdout + "\n" + r.stderr).strip().splitlines()[-6:]
+            raise RuntimeError("3D model (TripoSG) se nepodařilo vytvořit: " + " | ".join(tail))
+        return out.read_bytes()
 
 
 # ---------------- AI kreslíř (překreslení do kreslené podoby) ----------------

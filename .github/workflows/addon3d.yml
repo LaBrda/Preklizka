@@ -3,7 +3,7 @@ name: AI 3D doplněk – test
 on:
   push:
     branches: [main]
-    paths: [addon3d/**, app/addon3d.py, .github/workflows/addon3d.yml]
+    paths: [addon3d/run_sg.py, addon3d/sg/**, addon3d/**, app/addon3d.py, .github/workflows/addon3d.yml]
   workflow_dispatch:
 
 jobs:
@@ -44,6 +44,11 @@ jobs:
               msg = f"GLB {len(glb)} bajtů za {round(time.time() - t)} s"
               print("::notice title=Hotovo::" + msg)
               if len(glb) < 10000: raise RuntimeError("malý GLB: " + msg)
+              t = time.time(); addon3d._install_sg(); print("TripoSG instalace", round(time.time() - t), "s", addon3d.sg_status())
+              if not addon3d.sg_installed(): raise RuntimeError(str(addon3d.sg_status()))
+              t = time.time(); glb = addon3d.run_sg(open("car.png", "rb").read(), 4)
+              print("::notice title=TripoSG::" + f"GLB {len(glb)} bajtů za {round(time.time() - t)} s")
+              if len(glb) < 10000: raise RuntimeError("malý GLB z TripoSG")
           except BaseException as e:
               print("::error title=Chyba::" + (repr(e) + " " + traceback.format_exc()).replace("\n", " | ")[-3500:]); sys.exit(1)
           EOF

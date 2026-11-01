@@ -159,15 +159,15 @@ def addon3d_status():
     import addon3d
     if not DESKTOP and not os.environ.get("PREKLIZKA_3D_TEST"):
         return {"available": False}
-    return addon3d.status()
+    return dict(addon3d.status(), sg=addon3d.sg_status())
 
 
 @app.post("/api/addon3d/install")
-def addon3d_install():
+def addon3d_install(engine: str = ""):
     import addon3d
     if not DESKTOP and not os.environ.get("PREKLIZKA_3D_TEST"):
         raise HTTPException(404, "Jen v Preklizka.exe.")
-    return addon3d.start_install()
+    return addon3d.start_install_sg() if engine == "sg" else addon3d.start_install()
 
 
 _addon_lock = threading.Lock()
@@ -181,6 +181,8 @@ def addon3d_run(inp: Addon3dIn):
     with _addon_lock:
         try:
             png = base64.b64decode(inp.img.split(",")[-1])
+            if addon3d.sg_installed():                   # přesnější TripoSG, když je nainstalovaný
+                return {"glb": base64.b64encode(addon3d.run_sg(png)).decode(), "engine": "TripoSG"}
             return {"glb": base64.b64encode(addon3d.run(png, max(96, min(384, inp.resolution)))).decode()}
         except Exception as e:
             raise HTTPException(500, str(e))

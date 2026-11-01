@@ -133,6 +133,7 @@ details summary{cursor:pointer;font-size:13px;font-weight:600}
       <div id="aiIn" class="scan" hidden>
         <p class="hint" style="margin:0" id="aiSt">Zjišťuji AI 3D doplněk…</p>
         <button id="aiInstall" class="btn ghost" type="button" hidden>Nainstalovat AI 3D doplněk</button>
+        <button id="sgInstall" class="btn ghost" type="button" hidden>Doinstalovat přesnější model TripoSG (asi 5 GB)</button>
         <label class="drop" id="aiDrop" hidden><span class="lbl" id="aiName">Vyber fotku <small>auto nebo věc šikmo zepředu, celá v záběru</small></span><canvas></canvas><input id="fAi" type="file" accept="image/*"></label>
         <div class="f" id="aiResBox" hidden><label for="aiRes">Detail 3D modelu</label>
           <select id="aiRes"><option value="192">Hrubý (rychlý)</option><option value="256" selected>Střední</option><option value="320">Jemný</option></select></div>
@@ -1162,10 +1163,17 @@ async function addonRefresh() {
   else if (st.state === "error") $("#aiSt").textContent = st.step + " Zkus to znovu.";
   else $("#aiSt").textContent = `AI z jedné fotky udělá 3D model, který se pak nařeže na vrstvy. Potřebuje jednorázovou instalaci doplňku (${st.size}, stáhne se do složky Preklizka_3D vedle exe).`;
   if (st.state === "error") $("#aiInstall").hidden = false;
+  const sg = st.sg || {};
+  $("#sgInstall").hidden = !ready || sg.state === "ready" || sg.state === "installing";
+  if (ready && sg.state === "ready") $("#aiSt").textContent += " Model: TripoSG (přesnější).";
+  else if (ready && sg.state === "installing") $("#aiSt").textContent = "Instaluji TripoSG: " + sg.step + (sg.log ? " – " + sg.log : "");
+  else if (ready && sg.state === "error") $("#aiSt").textContent = sg.step + " Zkus to znovu.";
+  else if (ready) $("#aiSt").textContent += " Teď počítá starší TripoSR; přesnější TripoSG doinstaluješ tlačítkem níž.";
   clearTimeout(addonTimer);
-  if (st.state === "installing") addonTimer = setTimeout(addonRefresh, 1500);
+  if (st.state === "installing" || sg.state === "installing") addonTimer = setTimeout(addonRefresh, 1500);
 }
 $("#aiInstall").onclick = async () => { await post("api/addon3d/install", {}); addonRefresh(); };
+$("#sgInstall").onclick = async () => { await post("api/addon3d/install?engine=sg", {}); addonRefresh(); };
 $("#fAi").onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
   const btn = $("#run"); btn.disabled = true;
