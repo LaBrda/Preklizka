@@ -401,7 +401,8 @@ def start_train(name: str, images: list, steps: int = 1000) -> dict:
         for i, b in enumerate(images):
             (d / "obrazky" / f"{i:03d}.png").write_bytes(b)
         _stt.update(state="training", step="Začínám…", log="", name=slug)
-        threading.Thread(target=_train, args=(slug, "zx" + slug, int(steps)), daemon=True).start()
+        steps = max(int(steps), min(4000, 20 * len(images)))   # víc obrázků = víc kroků (každý obrázek ~20×), jinak se tvář nestihne naučit
+        threading.Thread(target=_train, args=(slug, "zx" + slug, steps), daemon=True).start()
     return train_status()
 
 
