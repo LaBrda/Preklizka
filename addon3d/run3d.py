@@ -135,7 +135,7 @@ def align(mesh):
     if trimesh.transform_points([[1.9, 0, 0]], M)[0, 2] < 0:   # viditelný bok (k fotoaparátu) vždy na +Z (appka ho zrcadlí na druhý bok)
         M = np.diag([1.0, 1.0, -1.0, 1.0]) @ M
     mesh.apply_transform(M)
-    lim = np.radians(12)
+    lim = np.radians(25)                                # fotka zespodu nakloní model i o 20°; víc už bývá skutečný tvar
     for ax, i in ((2, 0), (0, 2)):                       # sklon dopředu/dozadu, pak do strany
         a = _lower_tilt(mesh.vertices[:, i], mesh.vertices[:, 1])
         if abs(a) < lim:
