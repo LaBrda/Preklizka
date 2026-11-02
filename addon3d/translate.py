@@ -14,7 +14,18 @@ if __name__ == "__main__":
     with open(sys.argv[1], encoding="utf-8") as f:
         text = f.read().strip()
     d = os.path.join(model_dir(), "mt")
-    tok = MarianTokenizer.from_pretrained(d)
+    td = d
+    if not d.isascii():                                   # sentencepiece ve Windows neotevře cestu s diakritikou (Překližka…)
+        import shutil
+        import tempfile
+        td = os.path.join(tempfile.gettempdir(), "preklizka_mt")
+        if not td.isascii():
+            td = os.path.join(os.environ.get("SystemDrive", "C:") + os.sep, "ProgramData", "preklizka_mt")
+        os.makedirs(td, exist_ok=True)
+        for f in ("source.spm", "target.spm", "vocab.json", "tokenizer_config.json", "config.json"):
+            if os.path.exists(os.path.join(d, f)):
+                shutil.copyfile(os.path.join(d, f), os.path.join(td, f))
+    tok = MarianTokenizer.from_pretrained(td)
     model = MarianMTModel.from_pretrained(d)
     parts = [p.strip() for p in text.replace("\n", ",").split(",") if p.strip()]   # po částech: krátké fráze se překládají věrněji
     out = []
