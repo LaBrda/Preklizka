@@ -142,6 +142,7 @@ details summary{cursor:pointer;font-size:13px;font-weight:600}
         <div class="f" id="aiShapeBox" hidden><label for="aiShape">Tvar vrstev</label>
           <select id="aiShape"><option value="hull" selected>Hladké boky (auta, jako z fotek)</option><option value="mesh">Přesně podle 3D modelu</option></select>
           <label style="display:flex;align-items:center;gap:8px;color:var(--fg);font-size:14px"><input id="aiSym" type="checkbox" checked style="width:auto"> Souměrně (odvrácený bok podle boku z fotky)</label></div>
+        <button id="aiStl" class="btn ghost" type="button" hidden>Stáhnout 3D model pro tisk (STL)</button>
       </div>
 
       <div id="scanIn" class="scan" hidden>
@@ -167,6 +168,7 @@ details summary{cursor:pointer;font-size:13px;font-weight:600}
       <div class="fields" id="wheelBox">
         <label class="f" style="flex-direction:row;align-items:center;gap:8px;grid-column:1/-1"><input id="pWheels" type="checkbox" checked style="width:auto"> Kola zvlášť (vlastní díly na ose)</label>
         <div class="f"><label for="pWW">Šířka kola (mm, 0 = automaticky)</label><input id="pWW" type="number" min="0" step="1" value="0"></div>
+        <div class="f"><label for="pWR">Velikost kol (% nalezené)</label><input id="pWR" type="number" min="50" max="150" step="5" value="100"></div>
         <label class="f" style="flex-direction:row;align-items:center;gap:8px;align-self:end"><input id="pSpin" type="checkbox" checked style="width:auto"> Kola se točí</label>
         <p class="hint" style="grid-column:1/-1;margin:0" id="wheelHint">Kola se hledají na fotce z boku. V záložce Kontrola siluet klikni do boku: na kolo = smazat, jinam = přidat kolo.</p>
       </div>
@@ -858,7 +860,8 @@ function params() {
   return { L: num("#pL", 200), t: Math.max(0.5, num("#pT", 3)), dowel: Math.max(0, num("#pD", 4)), wall: Math.max(0, num("#pH", 0)),
     kerf: Math.max(0, num("#pK", 0.15)), numMax: Math.max(0, num("#pN", 5)), res: Math.max(0.1, num("#pR", 0.25)),
     SW: num("#pSW", 400), SH: num("#pSH", 400), up: $("#up").value, detail: parseFloat($("#pDet").value) || 0, relief: $("#pRelief").checked,
-    wheelsOn: $("#pWheels").checked, wheelW: Math.max(0, num("#pWW", 0)), spin: $("#pSpin").checked };
+    wheelsOn: $("#pWheels").checked, wheelW: Math.max(0, num("#pWW", 0)), spin: $("#pSpin").checked,
+    wheelR: Math.min(1.5, Math.max(0.5, num("#pWR", 100) / 100)) };
 }
 
 let wheelsG = [], wheelK = 0;
@@ -888,7 +891,7 @@ async function compute() {
       wheelsG = []; wheelK = 0;
       if (P.wheelsOn && state.wheels.length && n >= 3) {
         const kx = nx / S0.w, kz = nz / S0.h;
-        wheelsG = state.wheels.map(w => ({ x: w.x * kx, z: w.y * kz, r: w.r * kx }));
+        wheelsG = state.wheels.map(w => ({ x: w.x * kx, z: w.y * kz, r: w.r * kx * P.wheelR }));
         let tw = P.wheelW;
         if (!tw) {   // šířka pneumatiky z fotky zepředu: šířka krajního sloupku dole
           const zc = wheelsG.reduce((a, w) => a + w.z, 0) / wheelsG.length, rr = wheelsG.reduce((a, w) => a + w.r, 0) / wheelsG.length, runs = [];
@@ -923,7 +926,7 @@ async function compute() {
       wheelsG = []; wheelK = 0;
       if (!state.mWheels) state.mWheels = meshWheels(u, nx, nz).map(w => ({ x: w.x / nx, y: w.z / nz, r: w.r / nz }));   // v poměru k boku
       if (P.wheelsOn && state.mWheels.length && layers.length >= 3) {
-        wheelsG = state.mWheels.map(w => ({ x: w.x * nx, z: w.y * nz, r: w.r * nz }));
+        wheelsG = state.mWheels.map(w => ({ x: w.x * nx, z: w.y * nz, r: w.r * nz * P.wheelR }));
         wheelK = carveWheels(layers, nx, nz, wheelsG, P, P.wheelW || W * 0.14);
       }
     }
@@ -955,6 +958,24 @@ function renderStats() {
   }).join("   ·   ") || (P.dowel > 0 ? "Kolíky se do modelu nevešly." : "");
 }
 
+// celý AI 3D model pro 3D tisk: binární STL v mm (délka = „Délka modelu“), osa Z nahoru jako ve sliceru
+function stlFrom(tris, lengthMm) {
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity;
+  for (let i = 0; i < tris.length; i += 3) { x0 = Math.min(x0, tris[i]); x1 = Math.max(x1, tris[i]); y0 = Math.min(y0, tris[i + 1]); }
+  const k = lengthMm / (x1 - x0 || 1), n = tris.length / 9, buf = new ArrayBuffer(84 + n * 50), dv = new DataView(buf);
+  dv.setUint32(80, n, true);
+  for (let t = 0; t < n; t++) {
+    const o = 84 + t * 50;
+    for (let j = 0; j < 3; j++) {
+      const b = t * 9 + j * 3;
+      dv.setFloat32(o + 12 + j * 12, (tris[b] - x0) * k, true);       // X délka
+      dv.setFloat32(o + 16 + j * 12, -tris[b + 2] * k, true);         // Y šířka
+      dv.setFloat32(o + 20 + j * 12, (tris[b + 1] - y0) * k, true);   // Z nahoru, stojí na podložce
+    }
+  }
+  return new Blob([buf], { type: "model/stl" });
+}
+$("#aiStl").onclick = () => state.aiScan && saveFile(($("#aiName").textContent.split(" ")[0].replace(/\.[^.]+$/, "") || "model") + "_3d.stl", stlFrom(state.aiScan, Math.max(20, parseFloat($("#pL").value) || 200)));
 const downloads = true;
 async function saveFile(filename, data) {
   const api = window.pywebview && window.pywebview.api;
@@ -1188,14 +1209,14 @@ $("#fAi").onchange = async e => {
     if (!r.ok) throw new Error(j.detail || "server " + r.status);
     const bin = Uint8Array.from(atob(j.glb), ch => ch.charCodeAt(0));
     state.aiScan = await meshFromBuffer("glb", bin.buffer);
-    state.aiGlb = bin; state.mWheels = null;
+    state.aiGlb = bin; state.mWheels = null; $("#aiStl").hidden = false;
     $("#aiName").innerHTML = `${f.name} <small>${(state.aiScan.length / 9).toLocaleString("cs-CZ")} trojúhelníků, ${((Date.now() - t0) / 1000).toFixed(0)} s</small>`;
     btn.disabled = false; await compute();
   } catch (err) { setStatus(err.message || String(err), true); btn.disabled = false; }
 };
 $("#pDet").onchange = () => state.mode === "photo" && compute();
 $("#pRelief").onchange = () => state.mode === "photo" && compute();
-["#pWheels", "#pWW", "#pSpin"].forEach(id => $(id).onchange = () => (state.mode === "photo" || (state.mode === "ai" ? state.aiScan : state.scan)) && compute());
+["#pWheels", "#pWW", "#pSpin", "#pWR"].forEach(id => $(id).onchange = () => (state.mode === "photo" || (state.mode === "ai" ? state.aiScan : state.scan)) && compute());
 $("#run").onclick = compute;
 
 const tabs = [["#t3d", "#p3d"], ["#tSheets", "#pSheets"], ["#tSil", "#pSil"]];

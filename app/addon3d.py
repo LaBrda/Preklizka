@@ -240,7 +240,7 @@ def _env_sg() -> dict:
     return env
 
 
-def run_sg(png: bytes, steps: int = 50) -> bytes:
+def run_sg(png: bytes, steps: int = 50, depth: int = 9) -> bytes:
     if not sg_installed():
         raise RuntimeError("TripoSG není nainstalovaný.")
     app = base_dir() / "app"
@@ -249,7 +249,7 @@ def run_sg(png: bytes, steps: int = 50) -> bytes:
     with tempfile.TemporaryDirectory() as td:
         inp, out = Path(td) / "in.png", Path(td) / "out.glb"
         inp.write_bytes(png)
-        r = subprocess.run([str(python()), "-E", "-X", "utf8", str(app / "run_sg.py"), str(inp), str(out), str(steps)],
+        r = subprocess.run([str(python()), "-E", "-X", "utf8", str(app / "run_sg.py"), str(inp), str(out), str(steps), str(depth)],
                            capture_output=True, text=True, encoding="utf-8", errors="replace", env=_env_sg(), timeout=3600,
                            creationflags=NO_WINDOW)
         if r.returncode != 0 or not out.exists():

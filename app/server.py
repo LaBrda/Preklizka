@@ -182,7 +182,8 @@ def addon3d_run(inp: Addon3dIn):
         try:
             png = base64.b64decode(inp.img.split(",")[-1])
             if addon3d.sg_installed():                   # přesnější TripoSG, když je nainstalovaný
-                return {"glb": base64.b64encode(addon3d.run_sg(png)).decode(), "engine": "TripoSG"}
+                steps, depth = {192: (30, 8), 256: (50, 9), 320: (50, 10)}.get(inp.resolution, (50, 9))   # Hrubý / Střední / Jemný
+                return {"glb": base64.b64encode(addon3d.run_sg(png, steps, depth)).decode(), "engine": "TripoSG"}
             return {"glb": base64.b64encode(addon3d.run(png, max(96, min(384, inp.resolution)))).decode()}
         except Exception as e:
             raise HTTPException(500, str(e))

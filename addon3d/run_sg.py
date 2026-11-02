@@ -55,7 +55,7 @@ def prepare(path):
     return Image.fromarray((out * 255).astype(np.uint8))
 
 
-def make(inp, out, steps=50, seed=42):
+def make(inp, out, steps=50, depth=9, seed=42):
     import numpy as np
     import torch
     import trimesh
@@ -73,7 +73,7 @@ def make(inp, out, steps=50, seed=42):
         res = pipe(image=img, generator=torch.Generator(device=dev).manual_seed(int(seed)), num_inference_steps=int(steps),
                    guidance_scale=7.0, use_flash_decoder=False,
                    dense_octree_depth=7 if os.environ.get("PREKLIZKA_SG_FAST") else 8,
-                   hierarchical_octree_depth=7 if os.environ.get("PREKLIZKA_SG_FAST") else (9 if gpu else 8)).samples[0]   # bez grafiky: jemnější skládání jen na GPU
+                   hierarchical_octree_depth=7 if os.environ.get("PREKLIZKA_SG_FAST") else (int(depth) if gpu else 8)).samples[0]   # jemnější skládání jen na GPU
     mesh = trimesh.Trimesh(res[0].astype(np.float32), np.ascontiguousarray(res[1]))
     mesh = largest_part(mesh)
     # TripoSG fotí z +Z (nahoru Y); appka čeká natočení jako u TripoSR (fotí z +X), pak stejné srovnání os a postavení na kola
@@ -85,6 +85,6 @@ def make(inp, out, steps=50, seed=42):
 
 if __name__ == "__main__":
     if len(sys.argv) >= 3:
-        make(sys.argv[1], sys.argv[2], *(int(x) for x in sys.argv[3:4]))
+        make(sys.argv[1], sys.argv[2], *(int(x) for x in sys.argv[3:5]))
     else:
         print(__doc__)
