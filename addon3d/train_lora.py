@@ -52,7 +52,7 @@ def train(job):
         raise SystemExit("CHYBA Žádné obrázky.")
     say(f"STAV Připravuji {len(files)} obrázků…")
     lat, emb = [], []
-    caption = job["trigger"] + ", cartoon character"
+    caption = job["trigger"]                             # jen slovo postavy: model se učí tvář, ne styl
     with torch.no_grad():
         ids = tok(caption, padding="max_length", max_length=tok.model_max_length, truncation=True, return_tensors="pt").input_ids.to(dev)
         c = te(ids)[0]

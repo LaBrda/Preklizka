@@ -122,11 +122,12 @@ def make(job):
         text = job.get("trigger", "") + (", " + text if text else "")
     pipe = pipe.to(dev)
     pipe.set_progress_bar_config(disable=True)
-    prompt = (text + ", " if text else "") + STYLE
+    real = job.get("style") == "real"
+    prompt = (text + ", " if text else "") + (REAL if real else STYLE)
     steps, cfg = int(job.get("steps", 25)), float(job.get("cfg", 8.0))
     g = torch.Generator(device="cpu").manual_seed(int(job.get("seed", 7)))
     w, h = int(job["w"]), int(job["h"])
-    common = dict(negative_prompt=NEGATIVE, num_inference_steps=steps, guidance_scale=cfg, generator=g)
+    common = dict(negative_prompt=REAL_NEG if real else NEGATIVE, num_inference_steps=steps, guidance_scale=cfg, generator=g)
     say("STAV AI kreslí…")
     if mode == "new":
         res = pipe(prompt, width=w, height=h, **common).images[0]
@@ -173,7 +174,9 @@ def make_custom(job, dev, dt):
     pipe = base if mode == "new" else (INP if mode == "inpaint" else I2I)(**base.components)
     text = (job.get("prompt") or "").strip()
     real = job.get("style") == "real"
-    if job.get("lora") and not xl:
+    if job.get("lora") and xl:
+        raise SystemExit("CHYBA Naučená postava funguje jen s modelem DreamShaper 8 nebo jiným SD 1.5, ne s SDXL (Juggernaut).")
+    if job.get("lora"):
         pipe.load_lora_weights(os.path.dirname(job["lora"]), weight_name=os.path.basename(job["lora"]))
         text = job.get("trigger", "") + (", " + text if text else "")
     pipe = pipe.to(dev)
