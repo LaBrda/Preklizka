@@ -75,6 +75,14 @@ jobs:
               t = time.time()
               fc = addon3d.run_kresba({"mode": "face", "prompt": "close-up portrait, face", "strength": 0.45, "w": 256, "h": 256, "steps": 4, "style": "real", "lora": addon3d.loras()[0]["name"]}, out, None)
               print("::notice title=Postava::doladění tváře " + str(Image.open(io.BytesIO(fc)).size) + f" za {round(time.time() - t)} s, soubory " + str(len(list((addon3d.postavy_dir() / addon3d.loras()[0]["name"] / "obrazky").glob("*")))))
+              # postava z jedné fotky (předloha tváře, IP-Adapter): sama i spolu s natrénovanou
+              r1 = addon3d.add_ref("Fotka", pics[0]); r2 = addon3d.add_ref("Testovací Postava", pics[1])
+              for who in ("fotka", addon3d.loras()[-1]["name"]):
+                  t = time.time()
+                  o2 = addon3d.run_kresba({"mode": "new", "prompt": "smiling", "w": 256, "h": 256, "steps": 4, "style": "real", "lora": who}, None, None)
+                  print("::notice title=Předloha::" + who + " " + str(Image.open(io.BytesIO(o2)).size) + f" za {round(time.time() - t)} s " + json.dumps(addon3d.loras()))
+              o3 = addon3d.run_kresba({"mode": "draw", "prompt": "red fire truck", "strength": 0.9, "w": 320, "h": 192, "steps": 4, "lora": "fotka"}, b1.getvalue(), b2.getvalue())
+              print("::notice title=Předloha::s obrysy " + str(Image.open(io.BytesIO(o3)).size))
               print("::notice title=Postava::nový obrázek s postavou " + str(Image.open(io.BytesIO(out)).size) + " " + json.dumps(addon3d.loras()))
           except BaseException as e:
               print("::error title=Chyba::" + (repr(e) + " " + traceback.format_exc()).replace("\n", " | ")[-3500:]); sys.exit(1)

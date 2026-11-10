@@ -265,7 +265,7 @@ def kresba_installed() -> bool:
         return False
     import re
     m = re.search(r'^FILES = \{(.*?)^\}', (src_dir() / "repaint.py").read_text(encoding="utf-8"), re.S | re.M)
-    names = re.findall(r'"(sd/[^"]+|sdi/[^"]+|cn/[^"]+)"', m.group(1)) if m else []
+    names = re.findall(r'"(sd/[^"]+|sdi/[^"]+|cn/[^"]+|ipa/[^"]+)"', m.group(1)) if m else []
     names += ["mt/pytorch_model.bin"]
     d = base_dir() / "kresba_model"
     return all((d / n).exists() for n in names) and (d / "sdxl" / "model_index.json").exists()
@@ -344,17 +344,61 @@ def postavy_dir() -> Path:
 
 
 def loras() -> list:
-    """Naučené postavy: [{name, trigger}]."""
+    """Postavy: [{name, trigger, lora, ref}]. lora = natrénovaná, ref = má fotku tváře jako předlohu."""
     import json
     out = []
     for f in sorted(postavy_dir().glob("*/info.json")):
         try:
             info = json.loads(f.read_text(encoding="utf-8"))
-            if (f.parent / "lora.safetensors").exists():
-                out.append({"name": f.parent.name, "trigger": info.get("trigger", "")})
+            lora, ref = (f.parent / "lora.safetensors").exists(), (f.parent / "ref.png").exists()
+            if lora or ref:
+                out.append({"name": f.parent.name, "trigger": info.get("trigger", ""), "lora": lora, "ref": ref})
         except Exception:                                             # noqa: BLE001
             pass
     return out
+
+
+def _slug(name: str) -> str:
+    import re
+    import unicodedata
+    return re.sub(r"[^a-z0-9]+", "", unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower())[:20] or "postava"
+
+
+def _face_png(data: bytes) -> bytes:
+    """Výřez tváře z fotky jako předloha (PNG, čtverec). Bez nalezené tváře celý obrázek."""
+    import io
+    from PIL import Image
+    im = Image.open(io.BytesIO(_crops(data)[0][0]))                   # sjednocený obrázek (bílé pozadí, rozumná velikost)
+    try:
+        import numpy as np
+        from ai import _faces_ai
+        det = _faces_ai(np.asarray(im))
+    except Exception:                                                 # noqa: BLE001
+        det = []
+    if det:
+        x, y, w, h = max(det, key=lambda f: f[2])
+        s = int(min(1.7 * w, *im.size))
+        x0 = int(min(max(x + w / 2 - s / 2, 0), im.size[0] - s))
+        y0 = int(min(max(y + h / 2 - s / 2, 0), im.size[1] - s))
+        im = im.crop((x0, y0, x0 + s, y0 + s))
+    im.thumbnail((768, 768), Image.LANCZOS)
+    b = io.BytesIO()
+    im.save(b, "PNG")
+    return b.getvalue()
+
+
+def add_ref(name: str, data: bytes) -> dict:
+    """Postava z jedné fotky: uloží tvář jako předlohu (bez tréninku). Existující naučené postavě předlohu jen přidá."""
+    import json
+    if not kresba_installed():
+        raise RuntimeError("Nejdřív nainstaluj AI kreslíře (nebo doinstaluj novou část).")
+    png = _face_png(data)
+    d = postavy_dir() / _slug(name)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "ref.png").write_bytes(png)
+    if not (d / "info.json").exists():
+        (d / "info.json").write_text(json.dumps({"trigger": ""}), encoding="utf-8")
+    return {"name": d.name, "loras": loras()}
 
 
 _stt = {"state": "none", "step": "", "log": "", "name": ""}
@@ -434,31 +478,36 @@ def _crops(data: bytes) -> list:
 
 def start_train(name: str, images: list, steps: int = 1000) -> dict:
     """images: obrázky postavy (PNG/JPG bajty). Slovo postavy = jméno bez diakritiky (model ho pak pozná v zadání)."""
-    import re
-    import unicodedata
     if not kresba_installed():
         raise RuntimeError("Nejdřív nainstaluj AI kreslíře.")
-    slug = re.sub(r"[^a-z0-9]+", "", unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower())[:20] or "postava"
+    slug = _slug(name)
     if len(images) < 5:
         raise RuntimeError("Dej aspoň 5 obrázků postavy (nejlépe 15–30).")
     with _lock:
         if _stt["state"] == "training":
             return train_status()
         d = postavy_dir() / slug
+        old_ref = (d / "ref.png").read_bytes() if (d / "ref.png").exists() else None   # ručně přidaná předloha tváře zůstane
         shutil.rmtree(d, ignore_errors=True)
         (d / "obrazky").mkdir(parents=True)
-        n = 0
+        n, best = 0, (0, None)
         for i, b in enumerate(images):
             try:
                 parts = _crops(b)
             except Exception:                                         # noqa: BLE001  (nečitelný obrázek přeskočit)
                 continue
+            for png, cap in parts[1:]:                                # největší tvář zblízka = předloha tváře při kreslení
+                if "face" in cap and len(png) > best[0]:
+                    best = (len(png), png)
             for j, (png, cap) in enumerate(parts):                    # 000a.png = celý, 000b/c = výřezy; popis vedle v .txt
                 (d / "obrazky" / f"{i:03d}{'abc'[j]}.png").write_bytes(png)
                 (d / "obrazky" / f"{i:03d}{'abc'[j]}.txt").write_text(cap, encoding="utf-8")
             n += 1
         if n < 5:
             raise RuntimeError("Obrázky se nepodařilo načíst (aspoň 5 musí být čitelných).")
+        if old_ref or best[1]:
+            (d / "ref.png").write_bytes(old_ref or best[1])
+            (d / "info.json").write_text('{"trigger": ""}', encoding="utf-8")
         _stt.update(state="training", step="Začínám…", log="", name=slug)
         steps = max(int(steps), min(4000, 20 * len(images)))   # víc obrázků = víc kroků (každý obrázek ~20×), jinak se tvář nestihne naučit
         threading.Thread(target=_train, args=(slug, "zx" + slug, steps), daemon=True).start()
@@ -506,11 +555,13 @@ def run_kresba(job: dict, img_png: bytes | None, ctrl_png: bytes | None) -> byte
     import json
     if job.get("lora"):                                               # jméno postavy -> soubor a slovo
         info = {x["name"]: x for x in loras()}.get(job["lora"])
-        if info:
+        d = postavy_dir() / job["lora"]
+        job = {k: v for k, v in job.items() if k != "lora"}
+        if info and info["lora"]:
             _libs_k2()
-            job = dict(job, lora=str(postavy_dir() / job["lora"] / "lora.safetensors"), trigger=info["trigger"])
-        else:
-            job = {k: v for k, v in job.items() if k != "lora"}
+            job.update(lora=str(d / "lora.safetensors"), trigger=info["trigger"])
+        if info and info["ref"]:
+            job["ref"] = str(d / "ref.png")
     if job.get("model"):                                              # vlastní model: jen soubor ze složky vlastni_modely
         if job["model"] not in own_models():
             raise RuntimeError("Vlastní model nenalezen, přidej ho znovu.")

@@ -38,6 +38,10 @@ FILES = {
         "tokenizer_2/tokenizer_config.json")},
     **{"mt/" + k: "mt-csen-" + k for k in (
         "config.json", "generation_config.json", "pytorch_model.bin", "source.spm", "target.spm", "vocab.json", "tokenizer_config.json")},
+    "ipa/image_encoder/config.json": "ipa-encoder-config.json",          # postava podle jedné fotky (IP-Adapter plus-face)
+    "ipa/image_encoder/model.safetensors": "ipa-encoder.fp16.safetensors",
+    "ipa/ip-adapter-plus-face_sd15.safetensors": "ipa-plus-face-sd15.safetensors",
+    "ipa/ip-adapter-plus-face_sdxl_vit-h.safetensors": "ipa-plus-face-sdxl.safetensors",
     "cn/config.json": "cn-lineart-config.json",
     "cn/diffusion_pytorch_model.fp16.safetensors": "cn-lineart.fp16.safetensors",
 }
@@ -56,6 +60,22 @@ def is_xl(path):
     from safetensors import safe_open
     with safe_open(path, "pt") as f:
         return any(k.startswith("conditioner.embedders.1") for k in f.keys())
+
+
+def face_ref(pipe, job, xl, dt):
+    """Postava podle fotky: tvář z předlohy vede kreslení (IP-Adapter plus-face). Vrátí parametry navíc pro kreslení."""
+    if not job.get("ref"):
+        return {}
+    from PIL import Image
+    from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
+    d = os.path.join(model_dir(), "ipa")
+    say("STAV Načítám předlohu tváře…")
+    enc = CLIPVisionModelWithProjection.from_pretrained(os.path.join(d, "image_encoder"), torch_dtype=dt)
+    pipe.register_modules(image_encoder=enc, feature_extractor=CLIPImageProcessor())
+    pipe.load_ip_adapter(d, subfolder="", weight_name="ip-adapter-plus-face_sdxl_vit-h.safetensors" if xl else "ip-adapter-plus-face_sd15.safetensors",
+                         image_encoder_folder=None, local_files_only=True)
+    pipe.set_ip_adapter_scale(float(job.get("ref_scale", 0.7)))
+    return {"ip_adapter_image": Image.open(job["ref"]).convert("RGB")}
 
 
 def model_dir():
@@ -122,6 +142,7 @@ def make(job):
     if job.get("lora"):                                   # naučená postava: LoRA + její slovo do zadání
         pipe.load_lora_weights(os.path.dirname(job["lora"]), weight_name=os.path.basename(job["lora"]))
         text = job.get("trigger", "") + (", " + text if text else "")
+    ref = face_ref(pipe, job, False, dt)
     pipe = pipe.to(dev)
     pipe.set_progress_bar_config(disable=True)
     real = job.get("style") == "real"
@@ -129,7 +150,7 @@ def make(job):
     steps, cfg = int(job.get("steps", 25)), float(job.get("cfg", 8.0))
     g = torch.Generator(device="cpu").manual_seed(int(job.get("seed", 7)))
     w, h = int(job["w"]), int(job["h"])
-    common = dict(negative_prompt=REAL_NEG if real else NEGATIVE, num_inference_steps=steps, guidance_scale=cfg, generator=g)
+    common = dict(negative_prompt=REAL_NEG if real else NEGATIVE, num_inference_steps=steps, guidance_scale=cfg, generator=g, **ref)
     say("STAV AI kreslí…")
     if mode == "new":
         res = pipe(prompt, width=w, height=h, **common).images[0]
@@ -179,11 +200,12 @@ def make_custom(job, dev, dt):
     pipe = base if mode == "new" else (INP if mode == "inpaint" else I2I)(**base.components)
     text = (job.get("prompt") or "").strip()
     real = job.get("style") == "real"
-    if job.get("lora") and xl:
-        raise SystemExit("CHYBA Naučená postava funguje jen s modelem DreamShaper 8 nebo jiným SD 1.5, ne s SDXL (Juggernaut).")
-    if job.get("lora"):
+    if job.get("lora") and xl and not job.get("ref"):
+        raise SystemExit("CHYBA Tahle postava je naučená jen tréninkem a ten funguje s DreamShaperem nebo jiným SD 1.5, ne s SDXL (Juggernaut). Přidej jí fotku tváře (Postava z jedné fotky se stejným jménem).")
+    if job.get("lora") and not xl:
         pipe.load_lora_weights(os.path.dirname(job["lora"]), weight_name=os.path.basename(job["lora"]))
         text = job.get("trigger", "") + (", " + text if text else "")
+    ref = face_ref(pipe, job, xl, dt)
     pipe = pipe.to(dev)
     pipe.set_progress_bar_config(disable=True)
     prompt = (text + ", " if text else "") + (REAL if real else STYLE)
@@ -193,7 +215,7 @@ def make_custom(job, dev, dt):
         w, h = int(w * k) // 8 * 8, int(h * k) // 8 * 8
     g = torch.Generator(device="cpu").manual_seed(int(job.get("seed", 7)))
     common = dict(negative_prompt=REAL_NEG if real else NEGATIVE, num_inference_steps=int(job.get("steps", 25)),
-                  guidance_scale=6.0 if xl else 7.0, generator=g)
+                  guidance_scale=6.0 if xl else 7.0, generator=g, **ref)
     say("STAV AI kreslí…")
     if mode == "new":
         res = pipe(prompt, width=w, height=h, **common).images[0]

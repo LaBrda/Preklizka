@@ -203,8 +203,17 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
           <button class="btn aib" id="cfMark" type="button" title="Označ část obrázku, kterou chceš změnit">Označit část</button>
           <button class="btn aib" id="cfInpaint" type="button" title="Nejdřív Označit část, pak napiš, co s ní">Překreslit vybranou část</button>
         </div>
+        <details style="margin-top:8px"><summary>Postava z jedné fotky</summary>
+          <p class="hint">Stačí jedna fotka nebo obrázek, kde je tvář dobře vidět. Appka si tvář vyřízne a drží se jí při každém kreslení, bez tréninku. Funguje i s vlastním modelem (Juggernaut). Postavu pak vybereš nahoře v poli Postava.</p>
+          <div class="fields">
+            <div class="f"><label for="rfName">Jméno postavy</label><div class="in"><input id="rfName" type="text" placeholder="např. Lucka"></div></div>
+          </div>
+          <input id="rfFile" type="file" accept="image/*">
+          <div class="dl"><button class="btn" id="rfGo" type="button">Uložit postavu</button></div>
+          <p class="hint" id="rfSt"></p>
+        </details>
         <details style="margin-top:8px"><summary>Naučit postavu (LoRA)</summary>
-          <p class="hint">Vyber 20–50 nejlepších obrázků jedné postavy (ostrá tvář zepředu i z poloprofilu, různé výrazy; pár portrétů, pár celých postav). Appka si z každého sama vyřízne tvář zblízka a horní půlku těla a učí se je zvlášť, tvář nejvíc. Víc obrázků = delší trénink: 30 obrázků asi 20–30 minut, 150 obrázků přes hodinu. Pak postavu vybereš nahoře v poli Postava a kresli s DreamShaperem. Postavy naučené ve starší verzi natrénuj znovu.</p>
+          <p class="hint">Vyber 20–50 nejlepších obrázků jedné postavy (ostrá tvář zepředu i z poloprofilu, různé výrazy; pár portrétů, pár celých postav). Appka si z každého sama vyřízne tvář zblízka a horní půlku těla a učí se je zvlášť, tvář nejvíc. Víc obrázků = delší trénink: 30 obrázků asi 20–30 minut, 150 obrázků přes hodinu. Pak postavu vybereš nahoře v poli Postava. Trénink platí pro DreamShaper; největší tvář z obrázků se uloží i jako předloha, takže postava jde použít i s Juggernautem. Postavy naučené ve starší verzi natrénuj znovu.</p>
           <div class="fields">
             <div class="f"><label for="ltName">Jméno postavy</label><div class="in"><input id="ltName" type="text" placeholder="např. Lucka"></div></div>
             <div class="f"><label for="ltSteps">Délka tréninku</label><div class="in"><select id="ltSteps"><option value="600">rychlý</option><option value="1200" selected>normální</option><option value="2000">důkladný</option></select></div></div>
@@ -993,7 +1002,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     else if (ready) $("cfSt").textContent = "Překreslí obrázek vlevo do kreslené podoby, tvar zůstane. Nejlépe s odstraněným pozadím." + (st.gpu ? "" : " Bez NVIDIA karty to potrvá několik minut.");
     else if (st.state === "installing") $("cfSt").textContent = "Instaluji: " + st.step + (st.log ? " – " + st.log : "");
     else if (st.state === "error") $("cfSt").textContent = st.step + " Zkus to znovu.";
-    else if (st.update) $("cfSt").textContent = "Nová verze AI kreslíře přidala části (překreslení výběru, vlastní model). Klikni na Nainstalovat, stáhne se jen to, co chybí (asi 2 GB).";
+    else if (st.update) $("cfSt").textContent = "Nová verze AI kreslíře přidala části (postava z jedné fotky). Klikni na Nainstalovat, stáhne se jen to, co chybí (asi 2,3 GB).";
     else $("cfSt").textContent = `AI kreslíř překreslí fotku (bagr, auto…) do kreslené podoby jako animovaný obrázek. Potřebuje jednorázovou instalaci (${st.size}, do složky Preklizka_3D vedle exe).`;
     if (st.state === "error") $("cfInstall").hidden = false;
     let wantModel = null; try { wantModel = localStorage.getItem("cfModel"); } catch (e) {}
@@ -1044,6 +1053,17 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     if (!$("cfText").value.trim()) { $("cfRun").hidden = false; $("cfRun").textContent = "Napiš do pole, co s označenou částí, např. červená kabina."; return; }
     if (selPaint) { setAiSel(false); selPaint = false; $("cfMark").classList.remove("primary"); $("cfMark").textContent = "Označit část"; }
     cfGo(Object.assign(cfParams("inpaint"), { points: aiPts, box: aiBox }), "AI překresluje vybranou část", "upraveno", "Hotovo, zbytek obrázku zůstal beze změny.", aiBase);
+  };
+  $("rfGo").onclick = async () => {
+    const f = $("rfFile").files[0];
+    if (!$("rfName").value.trim()) { $("rfSt").textContent = "Napiš jméno postavy."; return; }
+    if (!f) { $("rfSt").textContent = "Vyber fotku s tváří."; return; }
+    const img = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(f); });
+    const r = await fetch("api/kresba/ref", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: $("rfName").value.trim(), image: img }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { $("rfSt").textContent = j.detail || "Nepovedlo se uložit."; return; }
+    $("rfSt").textContent = "Postava " + j.name + " je uložená. Vyber ji nahoře v poli Postava.";
+    await cfRefresh(); $("cfLora").value = j.name;
   };
   $("ltGo").onclick = async () => {
     const files = [...$("ltFiles").files];

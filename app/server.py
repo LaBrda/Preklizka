@@ -247,6 +247,23 @@ def kresba_train(inp: TrainIn):
         raise HTTPException(400, str(e))
 
 
+class RefIn(BaseModel):
+    name: str
+    image: str
+
+
+@app.post("/api/kresba/ref")
+def kresba_ref(inp: RefIn):
+    """Postava z jedné fotky (předloha tváře, bez tréninku)."""
+    import addon3d
+    if not DESKTOP and not os.environ.get("PREKLIZKA_3D_TEST"):
+        raise HTTPException(404, "Jen v Preklizka.exe.")
+    try:
+        return addon3d.add_ref(inp.name, base64.b64decode(inp.image.split(",")[-1]))
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
 @app.post("/api/kresba/install")
 def kresba_install():
     import addon3d
