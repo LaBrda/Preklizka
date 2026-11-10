@@ -65,6 +65,10 @@ MIRROR.update({
     # překlad zadání čeština -> angličtina (Helsinki-NLP opus-mt-cs-en, Apache 2.0)
     **{"mt-csen-" + k: "https://huggingface.co/Helsinki-NLP/opus-mt-cs-en/resolve/main/" + k for k in (
         "config.json", "generation_config.json", "pytorch_model.bin", "source.spm", "target.spm", "vocab.json", "tokenizer_config.json")},
+    # postava podle jedné fotky: IP-Adapter plus-face (h94/IP-Adapter, Apache 2.0); kodér obrázku se převádí na fp16 níž
+    "ipa-encoder-config.json": IPA + "models/image_encoder/config.json",
+    "ipa-plus-face-sd15.safetensors": IPA + "models/ip-adapter-plus-face_sd15.safetensors",
+    "ipa-plus-face-sdxl.safetensors": IPA + "sdxl_models/ip-adapter-plus-face_sdxl_vit-h.safetensors",
     "cn-lineart-config.json": [CN + "main/config.json", CN + "refs%2Fpr%2F3/config.json"],
     "cn-lineart.fp16.safetensors": [CN + "main/diffusion_pytorch_model.fp16.safetensors",
                                     CN + "refs%2Fpr%2F3/diffusion_pytorch_model.fp16.safetensors"],
