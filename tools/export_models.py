@@ -41,6 +41,7 @@ MIRROR = {
 # AI překreslení do kreslené podoby (doplněk v exe): DreamShaper 8 + ControlNet lineart (creativeml-openrail-m)
 DS = "https://huggingface.co/Lykon/dreamshaper-8/resolve/main/"
 CN = "https://huggingface.co/lllyasviel/control_v11p_sd15_lineart/resolve/"
+IPA = "https://huggingface.co/h94/IP-Adapter/resolve/main/"
 MIRROR.update({
     "ds8-model_index.json": DS + "model_index.json",
     "ds8-unet-config.json": DS + "unet/config.json",
@@ -172,6 +173,12 @@ def main():
         get(n, u, SRC)
     for n, u in MIRROR.items():
         get(n, u, OUT)
+
+    # kodér obrázku pro IP-Adapter (CLIP ViT-H, 2,5 GB) -> fp16 (1,3 GB; soubor ve vydání smí mít nejvýš 2 GB)
+    from safetensors.torch import load_file, save_file
+    sd = load_file(get("ipa-encoder.safetensors", IPA + "models/image_encoder/model.safetensors", SRC))
+    save_file({k: (v.half() if v.is_floating_point() else v) for k, v in sd.items()}, os.path.join(OUT, "ipa-encoder.fp16.safetensors"))
+    del sd
 
     m = RRDBNet(nb=6)
     sd = torch.load(os.path.join(SRC, "RealESRGAN_x4plus_anime_6B.pth"), map_location="cpu")
