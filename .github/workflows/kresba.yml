@@ -59,14 +59,22 @@ jobs:
               import random
               pics = []
               for i in range(5):
-                  p = Image.new("RGB", (256, 256), "white"); q = ImageDraw.Draw(p)
+                  p = Image.new("RGB", (256, 384), "white"); q = ImageDraw.Draw(p)
                   q.ellipse((60 + i * 5, 40, 196 + i * 5, 176), fill=(255, 200, 150), outline="black", width=4); q.ellipse((100, 90, 115, 105), fill="black")
                   bb = io.BytesIO(); p.save(bb, "PNG"); pics.append(bb.getvalue())
+              orig = addon3d._crops                      # výřez tváře s popisem (na kresbě ji detektor nenajde, tak ručně)
+              def crops(b):
+                  o = orig(b); im = Image.open(io.BytesIO(o[0][0])).crop((40, 20, 232, 212)); bb = io.BytesIO(); im.save(bb, "PNG")
+                  return o + [(bb.getvalue(), "close-up portrait, face")]
+              addon3d._crops = crops
               addon3d.start_train("Testovací Postava", pics, 3)
               while addon3d.train_status()["state"] == "training": time.sleep(2)
               st = addon3d.train_status(); print("::notice title=Postava::" + json.dumps(st, ensure_ascii=False))
               if st["state"] != "ready": raise RuntimeError(st["step"])
               out = addon3d.run_kresba({"mode": "new", "prompt": "smiling", "w": 256, "h": 256, "steps": 4, "lora": addon3d.loras()[0]["name"]}, None, None)
+              t = time.time()
+              fc = addon3d.run_kresba({"mode": "face", "prompt": "close-up portrait, face", "strength": 0.45, "w": 256, "h": 256, "steps": 4, "style": "real", "lora": addon3d.loras()[0]["name"]}, out, None)
+              print("::notice title=Postava::doladění tváře " + str(Image.open(io.BytesIO(fc)).size) + f" za {round(time.time() - t)} s, soubory " + str(len(list((addon3d.postavy_dir() / addon3d.loras()[0]["name"] / "obrazky").glob("*")))))
               print("::notice title=Postava::nový obrázek s postavou " + str(Image.open(io.BytesIO(out)).size) + " " + json.dumps(addon3d.loras()))
           except BaseException as e:
               print("::error title=Chyba::" + (repr(e) + " " + traceback.format_exc()).replace("\n", " | ")[-3500:]); sys.exit(1)

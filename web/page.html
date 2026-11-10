@@ -194,6 +194,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
         <p class="hint" id="cfRun" hidden style="color:var(--cyan)"></p>
         <textarea id="cfText" rows="2" style="width:100%;margin-top:6px" placeholder="Co je na obrázku, třeba žlutý kolový bagr, tmavé rameno se lžící, radlice"></textarea>
         <label class="check"><input type="checkbox" id="cfCz" checked> Píšu česky (přeložit do angličtiny)</label>
+        <label class="check" title="Tvář se po nakreslení překreslí ještě jednou zblízka: je ostřejší a s naučenou postavou podobnější. Platí pro realistický vzhled a naučenou postavu, trvá o něco déle."><input type="checkbox" id="cfFace" checked> Doladit obličej</label>
         <p class="hint" id="cfEn" hidden></p>
         <div class="dl">
           <button class="btn primary aib" id="cfDraw" type="button">Překreslit obrázek</button>
@@ -203,7 +204,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
           <button class="btn aib" id="cfInpaint" type="button" title="Nejdřív Označit část, pak napiš, co s ní">Překreslit vybranou část</button>
         </div>
         <details style="margin-top:8px"><summary>Naučit postavu (LoRA)</summary>
-          <p class="hint">Vyber 20–50 nejlepších obrázků jedné postavy (ostrá tvář, různé úhly a výrazy; kvalita je důležitější než počet). Víc obrázků = delší trénink: 30 obrázků asi 20–30 minut, 150 obrázků přes hodinu. Pak postavu vybereš nahoře v poli Postava a kresli s DreamShaperem.</p>
+          <p class="hint">Vyber 20–50 nejlepších obrázků jedné postavy (ostrá tvář zepředu i z poloprofilu, různé výrazy; pár portrétů, pár celých postav). Appka si z každého sama vyřízne tvář zblízka a horní půlku těla a učí se je zvlášť, tvář nejvíc. Víc obrázků = delší trénink: 30 obrázků asi 20–30 minut, 150 obrázků přes hodinu. Pak postavu vybereš nahoře v poli Postava a kresli s DreamShaperem. Postavy naučené ve starší verzi natrénuj znovu.</p>
           <div class="fields">
             <div class="f"><label for="ltName">Jméno postavy</label><div class="in"><input id="ltName" type="text" placeholder="např. Lucka"></div></div>
             <div class="f"><label for="ltSteps">Délka tréninku</label><div class="in"><select id="ltSteps"><option value="600">rychlý</option><option value="1200" selected>normální</option><option value="2000">důkladný</option></select></div></div>
@@ -1021,7 +1022,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   }
   $("cfInstall").onclick = async () => { await fetch("api/kresba/install", { method: "POST" }); cfRefresh(); };
   $("cfStr").oninput = () => ($("cfStrV").textContent = $("cfStr").value);
-  const cfParams = (mode) => ({ mode, prompt: $("cfText").value, strength: +$("cfStr").value, ratio: $("cfRatio").value, sens: +$("aiSens").value, seed: +$("cfSeed").value || 7, lora: $("cfLora").value, model: $("cfModel").value, style: $("cfStyle").value });
+  const cfParams = (mode) => ({ mode, prompt: $("cfText").value, strength: +$("cfStr").value, ratio: $("cfRatio").value, sens: +$("aiSens").value, seed: +$("cfSeed").value || 7, lora: $("cfLora").value, model: $("cfModel").value, style: $("cfStyle").value, face: $("cfFace").checked });
   const cfModels = (list, want) => {                     // DreamShaper + vlastní modely ze složky vedle exe + přidat
     const cur = want != null ? want : $("cfModel").value;
     $("cfModel").innerHTML = '<option value="">DreamShaper 8 (kreslený)</option>' + list.map((m) => `<option value="${m}">${m.replace(/\.safetensors$/i, "")}</option>`).join("") + '<option value="add">Přidat vlastní model…</option>';

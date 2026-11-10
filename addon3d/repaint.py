@@ -92,7 +92,7 @@ def make(job):
     import torch
     from PIL import Image, ImageFilter
     from diffusers import (ControlNetModel, StableDiffusionControlNetImg2ImgPipeline, StableDiffusionControlNetPipeline,
-                           StableDiffusionInpaintPipeline, StableDiffusionPipeline, UNet2DConditionModel, UniPCMultistepScheduler)
+                           StableDiffusionImg2ImgPipeline, StableDiffusionInpaintPipeline, StableDiffusionPipeline, UNet2DConditionModel, UniPCMultistepScheduler)
 
     gpu = torch.cuda.is_available()
     dev = "cuda" if gpu else "cpu"
@@ -102,13 +102,15 @@ def make(job):
     mode = job.get("mode", "draw")
     if job.get("model"):
         return make_custom(job, dev, dt)
-    cn = None if mode in ("new", "inpaint") else ControlNetModel.from_pretrained(os.path.join(d, "cn"), torch_dtype=dt, variant="fp16", use_safetensors=True)
+    cn = None if mode in ("new", "inpaint", "face") else ControlNetModel.from_pretrained(os.path.join(d, "cn"), torch_dtype=dt, variant="fp16", use_safetensors=True)
     base = StableDiffusionPipeline.from_pretrained(os.path.join(d, "sd"), torch_dtype=dt, variant="fp16", use_safetensors=True,
                                                    safety_checker=None, feature_extractor=None, requires_safety_checker=False)
     parts = dict(base.components)
     parts["scheduler"] = UniPCMultistepScheduler.from_config(base.scheduler.config)
     if mode == "new":
         pipe = StableDiffusionPipeline(**parts)
+    elif mode == "face":                                  # doladění tváře: výřez tváře znovu ve velkém rozlišení
+        pipe = StableDiffusionImg2ImgPipeline(**parts)
     elif mode == "inpaint":
         parts["unet"] = UNet2DConditionModel.from_pretrained(os.path.join(d, "sdi", "unet"), torch_dtype=dt, variant="fp16", use_safetensors=True)
         pipe = StableDiffusionInpaintPipeline(**parts)
@@ -139,6 +141,9 @@ def make(job):
         res = res.resize(img.size, Image.LANCZOS)
         soft = mask.filter(ImageFilter.GaussianBlur(max(2, img.size[0] // 300)))
         res = Image.composite(res, img, soft)
+    elif mode == "face":
+        img = Image.open(job["img"]).convert("RGB").resize((w, h), Image.LANCZOS)
+        res = pipe(prompt, image=img, strength=float(job.get("strength", 0.4)), **common).images[0]
     else:
         con = Image.open(job["ctrl"]).convert("RGB").resize((w, h), Image.LANCZOS)
         if mode == "sketch":                              # podle popisu: obrysy fotky jen volně vedou polohu
@@ -200,7 +205,7 @@ def make_custom(job, dev, dt):
         res = Image.composite(res, img, mask.filter(ImageFilter.GaussianBlur(max(2, img.size[0] // 300))))
     else:                                                 # překreslit / podle popisu: img2img z fotky
         img = Image.open(job["img"]).convert("RGB").resize((w, h), Image.LANCZOS)
-        res = pipe(prompt, image=img, strength=float(job.get("strength", 0.9)) if mode == "draw" else 0.85, **common).images[0]
+        res = pipe(prompt, image=img, strength=float(job.get("strength", 0.9)) if mode in ("draw", "face") else 0.85, **common).images[0]
     res.save(job["out"])
     say("STAV Hotovo")
 

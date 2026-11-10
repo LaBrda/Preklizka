@@ -555,6 +555,24 @@ def _faces(rgb: np.ndarray):
     return [f for f in det if f[2] >= 0.45 * top]        # malé „obličeje“ vedle velkého bývají omyl (ruka, vzor)
 
 
+def _faces_ai(rgb: np.ndarray):
+    """Obličeje (x, y, strana, strana) pro AI kreslíře a trénink postavy: detektor YuNet (OpenCV Zoo, licence MIT)
+    najde i malou tvář na celé postavě a tvář z poloprofilu. Bez něj klasický detektor."""
+    import cv2
+    onnx = Path(__file__).resolve().parent / "face_yunet.onnx"
+    if not onnx.exists() or not hasattr(cv2, "FaceDetectorYN"):
+        return _faces(rgb)
+    s = min(1.0, 960 / max(rgb.shape[:2]))
+    g = cv2.resize(rgb, None, fx=s, fy=s, interpolation=cv2.INTER_AREA) if s < 1 else rgb
+    det = cv2.FaceDetectorYN.create(str(onnx), "", (g.shape[1], g.shape[0]), 0.6, 0.3, 50)
+    f = det.detect(cv2.cvtColor(np.ascontiguousarray(g[..., :3]), cv2.COLOR_RGB2BGR))[1]
+    out = []
+    for x, y, w, h in ([] if f is None else f[:, :4] / s):
+        side = max(w, h)
+        out.append((int(x + w / 2 - side / 2), int(y + h / 2 - side / 2), int(side), int(side)))
+    return out
+
+
 def _merge_shades(idx: np.ndarray, cent: np.ndarray, fg: np.ndarray, keep: float = 0, de_thr: float = 14):
     """Sloučit odstíny jedné barvy: osvětlená a stinná červená, šedé odlesky ve skle, skoro stejné barvy.
     Výsledná barva = barva největší části (nátěr má být čistý, ne kalný průměr)."""
@@ -941,6 +959,32 @@ def run(op: str, png: bytes, p: dict) -> bytes:
     return encode(res)
 
 
+def _face_fix(res: np.ndarray, job: dict) -> np.ndarray:
+    """Doladění tváře: na celé postavě má tvář jen pár desítek pixelů a model ji tam nakreslí rozmazanou nebo cizí.
+    Výřez tváře se proto překreslí znovu ve velkém (s naučenou postavou = s její podobou) a vloží zpět."""
+    import cv2
+    import addon3d
+    H, W = res.shape[:2]
+    faces = sorted(_faces_ai(res[..., :3]), key=lambda f: -f[2])[:2]
+    for x, y, w, h in faces:
+        if w > 0.4 * min(H, W) or w < 24:                # velká tvář je dost podrobná už z prvního průchodu
+            continue
+        s = int(min(2.0 * w, H, W))
+        x0 = int(min(max(x + w / 2 - s / 2, 0), W - s))
+        y0 = int(min(max(y + h / 2 - s / 2, 0), H - s))
+        crop = res[y0:y0 + s, x0:x0 + s].copy()
+        crop[..., 3] = 255
+        big = cv2.resize(crop, (512, 512), interpolation=cv2.INTER_CUBIC if s < 512 else cv2.INTER_AREA)
+        j = dict(job, mode="face", w=512, h=512, strength=0.45,
+                 prompt="close-up portrait, face" + (", " + job["prompt"] if job["prompt"].strip() else ""))
+        new = cv2.resize(decode(addon3d.run_kresba(j, encode(big), None)), (s, s), interpolation=cv2.INTER_AREA)
+        m = np.zeros((s, s), np.float32)                 # měkký přechod: uprostřed nová tvář, u kraje výřezu původní obrázek
+        cv2.ellipse(m, (s // 2, s // 2), (int(s * 0.36), int(s * 0.42)), 0, 0, 360, 1.0, -1)
+        m = cv2.GaussianBlur(m, (0, 0), s * 0.06)[..., None]
+        res[y0:y0 + s, x0:x0 + s, :3] = (new[..., :3] * m + res[y0:y0 + s, x0:x0 + s, :3] * (1 - m)).astype(np.uint8)
+    return res
+
+
 def kresba(rgba: np.ndarray, p: dict) -> np.ndarray:
     """AI kreslíř (doplněk exe): překreslí fotku do kreslené podoby; obrysy z AI kresby drží tvar (ControlNet).
     mode "new" = nový obrázek jen z textu."""
@@ -975,6 +1019,8 @@ def kresba(rgba: np.ndarray, p: dict) -> np.ndarray:
         m = np.where(sel, 255, 0).astype(np.uint8)
         job["mask_png"] = encode(np.dstack([m, m, m, np.full((H, W), 255, np.uint8)]))
     res = decode(addon3d.run_kresba(job, img_png, ctrl_png))
+    if p.get("face", True) and mode != "inpaint" and (job["lora"] or job["style"] == "real"):
+        res = _face_fix(res, job)
     if mode in ("draw", "inpaint"):
         res = cv2.resize(res, (W, H), interpolation=cv2.INTER_LANCZOS4)
         if not (rgba[..., 3] > 127).all():              # pozadí zůstane průhledné jako na vstupu

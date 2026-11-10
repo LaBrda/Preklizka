@@ -383,6 +383,55 @@ def _train(name: str, trigger: str, steps: int) -> None:
         _stt.update(state="error", step=f"Trénink se nepovedl: {e}")
 
 
+def _crops(data: bytes) -> list:
+    """Z jednoho obrázku postavy udělá podklady pro trénink: [(PNG, popis)].
+    Celý obrázek + když je vidět tvář, i její výřez zblízka a výřez horní půlky těla.
+    Model se tak tvář učí ve velkém rozlišení, ne jako pár pixelů na celé postavě."""
+    import io
+    from PIL import Image
+    im = Image.open(io.BytesIO(data))
+    if im.mode in ("RGBA", "LA", "P"):                                # průhledné pozadí = bílá
+        im = im.convert("RGBA")
+        bg = Image.new("RGB", im.size, "white")
+        bg.paste(im, mask=im.getchannel("A"))
+        im = bg
+    im = im.convert("RGB")
+    im.thumbnail((1536, 1536), Image.LANCZOS)
+    W, H = im.size
+
+    def png(x):
+        b = io.BytesIO()
+        x.save(b, "PNG")
+        return b.getvalue()
+
+    face = None
+    try:
+        import numpy as np
+        from ai import _faces_ai
+        det = _faces_ai(np.asarray(im))
+        if det:
+            face = max(det, key=lambda f: f[2])
+    except Exception:                                                 # noqa: BLE001  (bez OpenCV jen celé obrázky)
+        pass
+    if not face:
+        return [(png(im), "")]
+    x, y, w, h = face
+    cx, cy = x + w / 2, y + h / 2
+
+    def cut(side, dy):
+        side = int(min(side, W, H))
+        x0 = int(min(max(cx - side / 2, 0), W - side))
+        y0 = int(min(max(cy + dy - side / 2, 0), H - side))
+        return im.crop((x0, y0, x0 + side, y0 + side))
+
+    out = [(png(im), "full body" if w < 0.12 * min(W, H) else ("upper body" if w < 0.3 * min(W, H) else "close-up portrait, face"))]
+    if w >= 110 and 1.7 * w < 0.75 * min(W, H):                        # tvář zblízka (z malé tváře by se učila jen rozmazanina)
+        out.append((png(cut(1.7 * w, 0)), "close-up portrait, face"))
+    if w >= 60 and 3.6 * w < 0.75 * min(W, H):                        # hlava, ramena, hrudník
+        out.append((png(cut(3.6 * w, 0.9 * h)), "upper body"))
+    return out
+
+
 def start_train(name: str, images: list, steps: int = 1000) -> dict:
     """images: obrázky postavy (PNG/JPG bajty). Slovo postavy = jméno bez diakritiky (model ho pak pozná v zadání)."""
     import re
@@ -398,8 +447,18 @@ def start_train(name: str, images: list, steps: int = 1000) -> dict:
         d = postavy_dir() / slug
         shutil.rmtree(d, ignore_errors=True)
         (d / "obrazky").mkdir(parents=True)
+        n = 0
         for i, b in enumerate(images):
-            (d / "obrazky" / f"{i:03d}.png").write_bytes(b)
+            try:
+                parts = _crops(b)
+            except Exception:                                         # noqa: BLE001  (nečitelný obrázek přeskočit)
+                continue
+            for j, (png, cap) in enumerate(parts):                    # 000a.png = celý, 000b/c = výřezy; popis vedle v .txt
+                (d / "obrazky" / f"{i:03d}{'abc'[j]}.png").write_bytes(png)
+                (d / "obrazky" / f"{i:03d}{'abc'[j]}.txt").write_text(cap, encoding="utf-8")
+            n += 1
+        if n < 5:
+            raise RuntimeError("Obrázky se nepodařilo načíst (aspoň 5 musí být čitelných).")
         _stt.update(state="training", step="Začínám…", log="", name=slug)
         steps = max(int(steps), min(4000, 20 * len(images)))   # víc obrázků = víc kroků (každý obrázek ~20×), jinak se tvář nestihne naučit
         threading.Thread(target=_train, args=(slug, "zx" + slug, steps), daemon=True).start()
