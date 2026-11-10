@@ -177,7 +177,7 @@ def main():
     # kodér obrázku pro IP-Adapter (CLIP ViT-H, 2,5 GB) -> fp16 (1,3 GB; soubor ve vydání smí mít nejvýš 2 GB)
     from safetensors.torch import load_file, save_file
     sd = load_file(get("ipa-encoder.safetensors", IPA + "models/image_encoder/model.safetensors", SRC))
-    save_file({k: (v.half() if v.is_floating_point() else v) for k, v in sd.items()}, os.path.join(OUT, "ipa-encoder.fp16.safetensors"))
+    save_file({k: (v.half() if v.is_floating_point() else v) for k, v in sd.items()}, os.path.join(OUT, "ipa-encoder.fp16.safetensors"), metadata={"format": "pt"})
     del sd
 
     m = RRDBNet(nb=6)

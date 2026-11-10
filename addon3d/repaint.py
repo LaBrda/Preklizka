@@ -67,10 +67,13 @@ def face_ref(pipe, job, xl, dt):
     if not job.get("ref"):
         return {}
     from PIL import Image
-    from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
+    from safetensors.torch import load_file
+    from transformers import CLIPImageProcessor, CLIPVisionConfig, CLIPVisionModelWithProjection
     d = os.path.join(model_dir(), "ipa")
     say("STAV Načítám předlohu tváře…")
-    enc = CLIPVisionModelWithProjection.from_pretrained(os.path.join(d, "image_encoder"), torch_dtype=dt)
+    enc = CLIPVisionModelWithProjection(CLIPVisionConfig.from_pretrained(os.path.join(d, "image_encoder")))   # váhy načíst přímo (soubor je převedený na fp16)
+    enc.load_state_dict(load_file(os.path.join(d, "image_encoder", "model.safetensors")), strict=False)
+    enc = enc.to(dt).eval()
     pipe.register_modules(image_encoder=enc, feature_extractor=CLIPImageProcessor())
     pipe.load_ip_adapter(d, subfolder="", weight_name="ip-adapter-plus-face_sdxl_vit-h.safetensors" if xl else "ip-adapter-plus-face_sd15.safetensors",
                          image_encoder_folder=None, local_files_only=True)
