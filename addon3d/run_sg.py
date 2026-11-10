@@ -75,7 +75,7 @@ def make(inp, out, steps=50, depth=9, seed=42):
                    dense_octree_depth=7 if os.environ.get("PREKLIZKA_SG_FAST") else 8,
                    hierarchical_octree_depth=7 if os.environ.get("PREKLIZKA_SG_FAST") else (int(depth) if gpu else 8)).samples[0]   # jemnější skládání jen na GPU
     mesh = trimesh.Trimesh(res[0].astype(np.float32), np.ascontiguousarray(res[1]))
-    mesh = largest_part(mesh)
+    mesh = largest_part(mesh, 0.01)                       # TripoSG dělá kola a drobné díly jako samostatné kusy: pryč jen úlomky
     # TripoSG fotí z +Z (nahoru Y); appka čeká natočení jako u TripoSR (fotí z +X), pak stejné srovnání os a postavení na kola
     mesh.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [0, 1, 0]))
     mesh = align(mesh)

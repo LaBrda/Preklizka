@@ -56,8 +56,9 @@ def load_model(dev):
     return model
 
 
-def largest_part(mesh):
-    """Jen největší kus sítě (úlomky pryč); bez scipy/networkx, které doplněk nemá."""
+def largest_part(mesh, frac=None):
+    """Jen největší kus sítě (úlomky pryč); bez scipy/networkx, které doplněk nemá.
+    frac: nechat i další kusy, které mají aspoň tento díl trojúhelníků největšího (kola, zrcátka, ruce bývají zvlášť)."""
     import numpy as np
     import trimesh
     f = mesh.faces
@@ -72,7 +73,8 @@ def largest_part(mesh):
         if np.array_equal(lab, old):
             break
     fl = lab[f[:, 0]]
-    keep = fl == np.bincount(fl).argmax()
+    cnt = np.bincount(fl)
+    keep = fl == cnt.argmax() if frac is None else cnt[fl] >= frac * cnt.max()
     out = trimesh.Trimesh(mesh.vertices, f[keep], process=False)
     out.remove_unreferenced_vertices()
     return out
