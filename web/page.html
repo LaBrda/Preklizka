@@ -270,7 +270,8 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     <div class="sec">
       <h2>Rozměry</h2>
       <div class="fields">
-        <div class="f"><label for="width">Šířka postavy</label><div class="in"><input id="width" type="number" min="50" max="2000" step="5" value="300"><span class="u">mm</span></div></div>
+        <div class="f"><label for="width">Šířka obrazu</label><div class="in"><input id="width" type="number" min="50" max="2000" step="5" value="320"><span class="u">mm</span></div></div>
+        <div class="f"><label for="height">Výška obrazu</label><div class="in"><input id="height" type="number" min="50" max="2000" step="5" placeholder="dopočítá se"><span class="u">mm</span></div></div>
         <div class="f"><label for="frame">Rámeček</label><div class="in"><input id="frame" type="number" min="0" max="100" step="1" value="10"><span class="u">mm</span></div></div>
         <div class="f"><label for="gap">Mezera k rámečku</label><div class="in"><input id="gap" type="number" min="-30" max="200" step="1" value="-3"><span class="u">mm</span></div></div>
         <div class="f"><label for="struts">Spojky k rámečku</label><div class="in"><select id="struts"><option value="0" selected>žádné</option><option value="1">1 (vlevo)</option><option value="2">2 (vlevo, vpravo)</option><option value="3">3 (+ dole)</option><option value="4">4 (všechny strany)</option></select></div></div>
@@ -282,6 +283,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
 
     <div class="sec">
       <h2>Řezání</h2>
+      <p class="hint">Rozměr celého obrazu i s rámečkem. Zadej šířku, nebo výšku, druhý rozměr se dopočítá podle obrázku. Zadej ho rovnou ve skutečné velikosti: obrysy a nejtenčí dřevo se počítají v milimetrech, SVG už pak nezvětšuj.</p>
       <p class="hint">Záporná „Mezera k rámečku“ znamená, že postava zasáhne do rámečku a splyne s ním, takže každá vrstva je jeden list. Spojky jsou rovné pásky navíc, když postava rámečku nedosáhne.</p>
       <div class="fields">
         <div class="f"><label for="minFeature">Nejtenčí dřevo</label><div class="in"><input id="minFeature" type="number" min="0.3" max="10" step="0.1" value="1.2"><span class="u">mm</span></div></div>
@@ -389,9 +391,11 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   let src = null, an = null, roles = null, res = null, view = "asm", timer = 0, layerURL = null;
   let manualRole = new Set();   // barvy, kterým uživatel sám vybral vrstvu; ostatní se rozdělují automaticky
 
+  const padMm = () => Math.max(0, (parseFloat($("frame").value) || 0) + (parseFloat($("gap").value) || 0));   // rámeček kolem postavy
+  const figW = () => Math.max(20, (parseFloat($("width").value) || 320) - 2 * padMm());                           // šířka postavy = obraz bez rámečku
   function opts() {
     const n = (id) => parseFloat($(id).value);
-    return { layers: NL(), width: n("width"), frame: n("frame"), gap: n("gap"), chamfer: n("chamfer"), hole: n("hole"), rim: n("rim"), struts: +$("struts").value, strutWidth: n("strutWidth"), sepLine: n("sepLine"),
+    return { layers: NL(), width: figW(), frame: n("frame"), gap: n("gap"), chamfer: n("chamfer"), hole: n("hole"), rim: n("rim"), struts: +$("struts").value, strutWidth: n("strutWidth"), sepLine: n("sepLine"),
       minFeature: n("minFeature"), minPiece: n("minPiece"), dropThin: $("dropThin").checked, tab: $("tab").checked, bridges: $("bridges").checked, engrave: $("engrave").checked, smooth: +$("smooth").value, maskSmooth: 0.25 + 0.08 * +$("smooth").value };
   }
   const hex = (c) => "#" + c.map((v) => v.toString(16).padStart(2, "0")).join("");
@@ -553,7 +557,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     if (key !== outlineKey) {
       outlineKey = key;
       if (!erase || erase.length !== an.W * an.H) erase = new Uint8Array(an.W * an.H);
-      la = LaserLayers.lineArt(an, roles, { widthMm: +$("width").value || 300, hole: +$("hole").value || 3, minCell: 0, erase, autoHole: true });
+      la = LaserLayers.lineArt(an, roles, { widthMm: figW(), hole: +$("hole").value || 3, minCell: 0, erase, autoHole: true });
       cellColor = new Map();
       for (const [px, col] of colorClicks) { const c = la.cells[px]; if (c) cellColor.set(c, col); }
     }
@@ -597,7 +601,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   $("lmLine").onclick = () => setLineMode("line");
   $("brush").oninput = () => { $("brushV").textContent = $("brush").value + " mm"; };
   $("lReset").onclick = () => { if (!la) return; colorClicks = []; cellColor = new Map(); holeEdit = new Int8Array(la.W * la.H); erase = new Uint8Array(la.W * la.H); eraseVer++; computeLA(); markDirty(); };
-  $("lDl").onclick = () => la && save(LaserLayers.linesSvg(la, holeEdit, +$("width").value || 300), "_linky.svg");
+  $("lDl").onclick = () => la && save(LaserLayers.linesSvg(la, holeEdit, figW()), "_linky.svg");
   function markDirty() { layersDirty = true; $("msg").textContent = "Úpravy linek se promítnou do vrstev po přepnutí na jinou záložku."; }
   let painting = false, raf = 0, eraseLive = null;
   function linePos(e) {
@@ -655,6 +659,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     $("stats").innerHTML = "";
     const chip = (t, w) => { const e = document.createElement("span"); e.className = "chip" + (w ? " warn" : ""); e.textContent = t; $("stats").appendChild(e); };
     chip(`deska ${Math.round(s.wmm)} × ${Math.round(s.hmm)} mm`);
+    if (document.activeElement !== $("height")) $("height").value = Math.round(s.hmm);
     chip(`silueta: ${s.silParts} ${s.silParts === 1 ? "díl" : "díly"}`, warn);
     chip(`otvory na desku: ${s.holes}`);
     chip(`kousky k lepení: ${s.pieces}`, s.pieces > 0);
@@ -852,7 +857,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
       const same = src === orig;
       vecRes = LaserLayers.vectorize(orig.data, orig.w, orig.h, {
         colors: +$("vColors").value || 8, detail: +$("vDetail").value, blur: +$("vBlur").value, minArea: +$("vMin").value || 12,
-        removeBg: $("vBg").checked, bg: same ? { tol: +$("bgTol").value || 30, bgSeeds, fgSeeds } : { tol: +$("bgTol").value || 30 }, widthMm: +$("width").value || 300,
+        removeBg: $("vBg").checked, bg: same ? { tol: +$("bgTol").value || 30, bgSeeds, fgSeeds } : { tol: +$("bgTol").value || 30 }, widthMm: figW(),
       });
       vecDirty = false;
       if (vecURL) URL.revokeObjectURL(vecURL);
@@ -907,6 +912,12 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     $("msg").textContent = "Uloženo: " + name;
   }
   $("dlAll").onclick = () => res && save(res.all);
+  $("height").addEventListener("change", () => {          // zadaná výška -> šířka podle poměru stran postavy
+    const H = parseFloat($("height").value), s = res && res.stats, p = padMm();
+    if (!H || !s || s.wmm <= 2 * p || s.hmm <= 2 * p) return;
+    $("width").value = Math.round((H - 2 * p) * (s.wmm - 2 * p) / (s.hmm - 2 * p) + 2 * p);
+    $("width").dispatchEvent(new Event("input"));
+  });
   $("resetAll").onclick = () => {                         // všechna nastavení vlevo zpět na výchozí hodnoty
     document.querySelectorAll("aside input, aside select").forEach((el) => {
       if (el.type === "file") return;
