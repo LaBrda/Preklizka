@@ -350,7 +350,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     <p class="layerinfo" id="layerinfo"></p>
     <div class="dl">
       <button class="btn primary" id="dlAll">Stáhnout SVG pro laser</button>
-      <button class="btn" id="dlPlan" title="Vrstvy s čísly barev a legendou. Otevři v prohlížeči a vytiskni.">Plánek malování</button>
+      <button class="btn" id="dlPlan" title="Každá vrstva v barvách, jak má vypadat natřená, a pod ní seznam jejích barev.">Vrstvy s barvami</button>
     </div>
     <p class="msg" id="msg" role="status"></p>
   </section>
@@ -930,7 +930,7 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
     $("msg").textContent = "Nastavení vráceno na výchozí.";
     if (src) analyze();
   };
-  $("dlPlan").onclick = () => res && res.plan && save(res.plan, "_planek_malovani.svg");
+  $("dlPlan").onclick = () => res && res.plan && save(res.plan, "_vrstvy_barvy.svg");
 
   // ---- AI pomocník (jen v appce se serverem: exe nebo Docker) ----
   let aiBase = null, aiPts = [], aiBox = null, aiSelMode = false, aiBusy = false, aiDrag = null;

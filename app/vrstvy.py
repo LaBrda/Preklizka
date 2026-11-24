@@ -619,54 +619,40 @@ def tab_board(wmm, hmm, ch):
 
 
 def plan_svg(wmm, hmm, sheets, fills, cent, NL):
-    """Plánek malování k vytištění: vrstvy vedle sebe, díly světle podbarvené s číslem barvy, dole legenda."""
+    """Vrstvy s barvami: každá vrstva tak, jak má vypadat natřená, a pod ní barvy, které na ni patří."""
     hexc = lambda c: "#" + "".join(f"{int(round(v)):02x}" for v in c)
-    tint = lambda c: hexc([255 - (255 - v) * 0.45 for v in c])
-    num = {}
-    for fk in fills:
-        for c, _, _ in fk:
-            num.setdefault(c, len(num) + 1)
-    gap, lab = 12.0, 12.0
-    cols = min(NL, 2 if wmm > hmm * 1.6 else 3)
+    gap, lab = 14.0, 12.0
+    cols = 1 if wmm > hmm else 2
+    fs = max(5.0, min(12.0, (cols * wmm + (cols - 1) * gap) / 60))
+    per = max(1, int(wmm // (fs * 7)))
+    most = max([len({c for c, polys, _ in (fk or []) if polys}) for fk in fills] + [1])
+    sw = fs * 1.4 * math.ceil(most / per) + 4                        # řádky s barvami pod vrstvou
+    cellH = lab + hmm + sw + gap
     rows = math.ceil(NL / cols)
-    fs0 = max(5.0, min(12.0, (cols * wmm + (cols - 1) * gap) / 60))
-    row_h = fs0 * 1.6
-    leg_h = 14 + math.ceil((len(num) + 2) / 3) * row_h
-    W = cols * wmm + (cols - 1) * gap
-    H = rows * (hmm + lab + gap) + leg_h
-    fs = max(5.0, min(12.0, W / 60))
-    out = [f'<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 {W:.2f} {H:.2f}" font-family="Arial, sans-serif"><title>plánek malování</title>',
+    W, H = cols * wmm + (cols - 1) * gap, rows * cellH
+    out = [f'<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 {W:.2f} {H:.2f}" font-family="Arial, sans-serif"><title>vrstvy a barvy</title>',
            '<rect width="100%" height="100%" fill="#fff"/>']
     for k, sh in enumerate(sheets):
-        ox, oy = (k % cols) * (wmm + gap), (k // cols) * (hmm + lab + gap) + lab
+        ox, oy = (k % cols) * (wmm + gap), (k // cols) * cellH + lab
         off = np.array([ox, oy])
-        title = "1 Deska – natřít černě" if k == 0 else (f"{k + 1} Horní vrstva – čisté dřevo" if k == NL - 1 else f"{k + 1} Barvy")
+        top = k == NL - 1
+        title = f"{k + 1}. vrstva – deska" if k == 0 else (f"{k + 1}. vrstva – horní, čisté dřevo" if top else f"{k + 1}. vrstva")
         out.append(f'<text x="{ox:.1f}" y="{oy - 3:.1f}" font-size="{fs * 0.9:.1f}" font-weight="bold">{title}</text>')
         cut_d = path_d([p + off for p in sh["cut"]]) if sh["cut"] else ""
+        base = "#111111" if k == 0 else ("#e8cca0" if top else "#ffffff")
         if cut_d:
-            out.append(f'<path d="{cut_d}" fill="{"#e4e4e6" if k == 0 else "#ffffff"}" fill-rule="evenodd" stroke="#000" stroke-width="0.35"/>')
-        if k == 0:
-            out.append(f'<text x="{ox + wmm / 2:.1f}" y="{oy + hmm / 2 + fs:.1f}" font-size="{fs * 2.5:.1f}" text-anchor="middle" font-weight="bold">D</text>')
-        if fills[k]:
-            for c, polys, _ in fills[k]:
-                if polys:
-                    out.append(f'<path d="{path_d([p + off for p in polys])}" fill="{tint(cent[c])}" fill-rule="evenodd" stroke="#555" stroke-width="0.2"/>')
-            for c, _, pts in fills[k]:
-                for x, y, r in pts:
-                    z = max(2.5, min(fs, r * 1.1))
-                    out.append(f'<text x="{ox + x:.1f}" y="{oy + y + z * 0.35:.1f}" font-size="{z:.1f}" text-anchor="middle" font-weight="bold">{num[c]}</text>')
-            if cut_d:
-                out.append(f'<path d="{cut_d}" fill="none" stroke="#000" stroke-width="0.35"/>')
-    ly = rows * (hmm + lab + gap) + 4
-    out.append(f'<text x="0" y="{ly + fs * 0.8:.1f}" font-size="{fs:.1f}" font-weight="bold">Barvy</text>')
-    ly += fs * 1.2
-    items = [(str(n), hexc(cent[c]), hexc(cent[c])) for c, n in num.items()]
-    items += [("D", "#000000", "deska: černá"), ("–", "#e8cca0", "horní vrstva: čisté dřevo")]
-    cw = W / 3
-    for i, (n, col, txt) in enumerate(items):
-        x, y = (i % 3) * cw, ly + (i // 3) * row_h
-        out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{fs * 2:.1f}" height="{fs * 1.1:.1f}" fill="{col}" stroke="#000" stroke-width="0.3"/>'
-                   f'<text x="{x + fs * 2.5:.1f}" y="{y + fs * 0.9:.1f}" font-size="{fs:.1f}"><tspan font-weight="bold">{n}</tspan>  {txt}</text>')
+            out.append(f'<path d="{cut_d}" fill="{base}" fill-rule="evenodd" stroke="#000" stroke-width="0.35"/>')
+        used = []
+        for c, polys, _ in (fills[k] or []):
+            if polys:
+                out.append(f'<path d="{path_d([p + off for p in polys])}" fill="{hexc(cent[c])}" fill-rule="evenodd" stroke="#000" stroke-width="0.2"/>')
+                if c not in used:
+                    used.append(c)
+        items = [hexc(cent[c]) for c in used] or [base]
+        for i, col in enumerate(items):
+            x, y = ox + (i % per) * fs * 7, oy + hmm + 3 + (i // per) * fs * 1.4
+            out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{fs * 1.6:.1f}" height="{fs:.1f}" fill="{col}" stroke="#000" stroke-width="0.3"/>'
+                       f'<text x="{x + fs * 1.9:.1f}" y="{y + fs * 0.82:.1f}" font-size="{fs * 0.8:.1f}">{"černá" if k == 0 else ("dřevo" if top and not used else col)}</text>')
     out.append("</svg>\n")
     return "\n".join(out)
 

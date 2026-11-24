@@ -487,45 +487,33 @@
 
   // plánek malování k vytištění: vrstvy vedle sebe, díly světle podbarvené s číslem barvy, dole legenda
   function planSvg(wmm, hmm, mm, sheets, paintInfo, cent, NL) {
+    // vrstvy s barvami: každá vrstva tak, jak má vypadat natřená, a pod ní barvy, které na ni patří
     const d = (polys, ox, oy) => polys.map((p) => closedD(p, mm, ox, oy)).join(" ");
     const hex = (c) => "#" + c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
-    const tint = (c) => hex(c.map((v) => 255 - (255 - v) * 0.45));
-    const num = new Map();                                // barva -> číslo, stejné na všech vrstvách
-    paintInfo.forEach((pi) => pi && pi.fills.forEach((f) => { if (!num.has(f.q)) num.set(f.q, num.size + 1); }));
-    const gap = 12, lab = 12, cols = Math.min(NL, wmm > hmm * 1.6 ? 2 : 3), rows = Math.ceil(NL / cols);
-    const fs0 = Math.max(5, Math.min(12, (cols * wmm + (cols - 1) * gap) / 60)), rowH = fs0 * 1.6;
-    const legH = 14 + Math.ceil((num.size + 2) / 3) * rowH;
-    const W = cols * wmm + (cols - 1) * gap, H = rows * (hmm + lab + gap) + legH;
-    const fs = Math.max(5, Math.min(12, W / 60));
-    let s = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 ${W.toFixed(2)} ${H.toFixed(2)}" font-family="Arial, sans-serif"><title>plánek malování</title>\n<rect width="100%" height="100%" fill="#fff"/>\n`;
+    const gap = 14, lab = 12, cols = wmm > hmm ? 1 : 2, rows = Math.ceil(NL / cols);
+    const fs = Math.max(5, Math.min(12, (cols * wmm + (cols - 1) * gap) / 60)), per = Math.max(1, Math.floor(wmm / (fs * 7)));
+    const most = Math.max(1, ...paintInfo.map((pi) => (pi ? new Set(pi.fills.filter((f) => f.polys.length).map((f) => f.q)).size : 1)));
+    const sw = fs * 1.4 * Math.ceil(most / per) + 4, cellH = lab + hmm + sw + gap;   // řádky s barvami pod vrstvou
+    const W = cols * wmm + (cols - 1) * gap, H = rows * cellH;
+    let s = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 ${W.toFixed(2)} ${H.toFixed(2)}" font-family="Arial, sans-serif"><title>vrstvy a barvy</title>\n<rect width="100%" height="100%" fill="#fff"/>\n`;
     sheets.forEach((sh, k) => {
-      const ox = (k % cols) * (wmm + gap), oy = Math.floor(k / cols) * (hmm + lab + gap) + lab;
-      const title = k === 0 ? "1 Deska – natřít černě" : k === NL - 1 ? `${k + 1} Horní vrstva – čisté dřevo` : `${k + 1} Barvy`;
+      const ox = (k % cols) * (wmm + gap), oy = Math.floor(k / cols) * cellH + lab, top = k === NL - 1;
+      const title = k === 0 ? `${k + 1}. vrstva – deska` : top ? `${k + 1}. vrstva – horní, čisté dřevo` : `${k + 1}. vrstva`;
       s += `<text x="${ox.toFixed(1)}" y="${(oy - 3).toFixed(1)}" font-size="${(fs * 0.9).toFixed(1)}" font-weight="bold">${title}</text>\n`;
-      const base = k === 0 ? "#e4e4e6" : "#ffffff";
+      const base = k === 0 ? "#111111" : top ? "#e8cca0" : "#ffffff";
       if (sh.cut.length) s += `<path d="${d(sh.cut, ox, oy)}" fill="${base}" fill-rule="evenodd" stroke="#000" stroke-width="0.35"/>\n`;
-      if (k === 0) s += `<text x="${(ox + wmm / 2).toFixed(1)}" y="${(oy + hmm / 2 + fs).toFixed(1)}" font-size="${(fs * 2.5).toFixed(1)}" text-anchor="middle" font-weight="bold">D</text>\n`;
-      const pi = paintInfo[k];
-      if (pi) {
-        for (const f of pi.fills) s += `<path d="${d(f.polys, ox, oy)}" fill="${tint(cent[f.q])}" fill-rule="evenodd" stroke="#555" stroke-width="0.2"/>\n`;
-        for (const f of pi.fills) for (const [x, y, r] of f.pts) {
-          const z = Math.max(2.5, Math.min(fs, r * mm * 1.1));
-          s += `<text x="${(ox + x * mm).toFixed(1)}" y="${(oy + y * mm + z * 0.35).toFixed(1)}" font-size="${z.toFixed(1)}" text-anchor="middle" font-weight="bold">${num.get(f.q)}</text>\n`;
-        }
-        if (sh.cut.length) s += `<path d="${d(sh.cut, ox, oy)}" fill="none" stroke="#000" stroke-width="0.35"/>\n`;
+      const used = [];
+      for (const f of (paintInfo[k] ? paintInfo[k].fills : [])) {
+        if (!f.polys.length) continue;
+        s += `<path d="${d(f.polys, ox, oy)}" fill="${hex(cent[f.q])}" fill-rule="evenodd" stroke="#000" stroke-width="0.2"/>\n`;
+        if (!used.includes(f.q)) used.push(f.q);
       }
-    });
-    // legenda
-    let ly = rows * (hmm + lab + gap) + 4;
-    s += `<text x="0" y="${(ly + fs * 0.8).toFixed(1)}" font-size="${fs.toFixed(1)}" font-weight="bold">Barvy</text>\n`;
-    ly += fs * 1.2;
-    const items = [...num.entries()].map(([q, n]) => [String(n), hex(cent[q]), hex(cent[q])]);
-    items.push(["D", "#000000", "deska: černá"], ["–", "#e8cca0", "horní vrstva: čisté dřevo"]);
-    const cw = W / 3;
-    items.forEach(([n, col, txt], i) => {
-      const x = (i % 3) * cw, y = ly + Math.floor(i / 3) * rowH;
-      s += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(fs * 2).toFixed(1)}" height="${(fs * 1.1).toFixed(1)}" fill="${col}" stroke="#000" stroke-width="0.3"/>`;
-      s += `<text x="${(x + fs * 2.5).toFixed(1)}" y="${(y + fs * 0.9).toFixed(1)}" font-size="${fs.toFixed(1)}"><tspan font-weight="bold">${n}</tspan>  ${txt}</text>\n`;
+      const items = used.length ? used.map((q) => hex(cent[q])) : [base];
+      items.forEach((col, i) => {
+        const x = ox + (i % per) * fs * 7, y = oy + hmm + 3 + Math.floor(i / per) * fs * 1.4;
+        s += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(fs * 1.6).toFixed(1)}" height="${fs.toFixed(1)}" fill="${col}" stroke="#000" stroke-width="0.3"/>`;
+        s += `<text x="${(x + fs * 1.9).toFixed(1)}" y="${(y + fs * 0.82).toFixed(1)}" font-size="${(fs * 0.8).toFixed(1)}">${k === 0 ? "černá" : top && !used.length ? "dřevo" : col}</text>\n`;
+      });
     });
     return s + "</svg>\n";
   }
